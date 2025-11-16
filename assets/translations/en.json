@@ -1,0 +1,354 @@
+{
+  "app_title": "Presence Management",
+  "exit_alert_title": "Exit Alert",
+  "exit_alert_desc": "Press again to exit",
+
+  "navbar_icon_title": {
+    "home": "Home",
+    "event": "Events",
+    "bluetooth": "Bluetooth",
+    "setting": "Setting"
+  },
+
+  "alert_notify": {
+    "event": {
+      "title": "Event Alert",
+      "description": {
+        "no_active": "No active events data were found",
+        "no_data": "No events data were found",
+        "no_data_dialog": "@:alert_notify.event.description.no_data, You may create a new event for first time in the Events menu",
+        "not_load": "Couldn't load events.",
+
+        "saving_recap": {
+          "process": "Saving FOSTI event recap",
+          "success": "Successfully save recap excel file",
+          "failed": "Failed to save recap excel file",
+          "no_users_log": "There are no members log in this event"
+        },
+
+        "create": {
+          "success": "Successfully create the event",
+          "failed": "Failed to create the event"
+        },
+
+        "update": {
+          "success": "Successfully update the event",
+          "failed": "Failed to update the event"
+        },
+
+        "delete": {
+          "success": "Successfully delete the event",
+          "failed": "Failed to delete the event"
+        }
+      }
+    },
+    "member": {
+      "title": "Member Alert",
+      "description": {
+        "no_data": "No members data were found",
+        "not_load": "Couldn't load members.",
+
+        "update": {
+          "success": "Successfully update the member",
+          "failed": "Failed to update the member"
+        }
+      }
+    },
+    "internet": {
+      "title": "Internet Alert",
+      "description": "No internet connection, please check your network."
+    },
+    "permission": {
+      "title": "Permission Alert",
+      "description": {
+        "not_granted": "Permission {permission} not granted",
+        "request_fail": "Permission request failed"
+      }
+    },
+    "bluetooth": {
+      "title": "Bluetooth Alert",
+      "description": {
+        "success_discover": "Available bluetooth completed discovered",
+        "success_rediscover": "Available bluetooth completed rediscovered",
+        "fail_discover": "Available bluetooth failed to discovered",
+        "fail_rediscover": "Available bluetooth failed to rediscovered",
+        "already_connected": "Another device is already connected. Please disconnect it first",
+        "request_enable_bt": "Requests enable bluetooth",
+        "bt_not_enable": "Bluetooth must be turned on",
+        "bt_success_connect": "Successfully connected to {device}",
+        "bt_fail_connect": "Failed connected to {device}",
+        "bt_success_disconnect": "Successfully disconnected from {device}",
+        "bt_fail_disconnect": "Failed disconnected from {device}",
+        "bt_already_disconnect": "Device {device} already disconnected",
+        "bt_connection_error": "Connection error with device {device}",
+        "no_active_bt": "No active connection to send message"
+      }
+    },
+    "wifi": {
+      "title": "WiFi Alert",
+      "description": {
+        "success_discover": "Available WiFi completed discovered",
+        "success_rediscover": "Available WiFi completed rediscovered",
+        "fail_discover": "Available WiFi failed to discovered",
+        "fail_rediscover": "Available WiFi failed to rediscovered",
+        "cant_start_scan": "WiFi scan cannot be started: {reason}",
+        "cant_get_scan_result": "Cannot get scanned WiFi results: {reason}"
+      }
+    },
+    "esp": {
+      "title": "ESP Alert",
+      "description": {
+        "no_wifi": "Please connect ESP to WiFi first",
+        "no_bluetooth": "Please connect Bluetooth to ESP first",
+        "wifi_connected": "ESP WiFi already connected",
+        "success_connect": "ESP successfully connected to {ssid}",
+        "fail_connect": "ESP failed to connect to {ssid}",
+        "no_esp": "There is no ESP32 connected at this time, make sure for ESP32 connected via bluetooth"
+      }
+    },
+    "file": {
+      "title": "File Alert",
+      "description": {
+        "success_set": "Successfully set the members data excel file as {fileName}",
+        "fail_set": "Failed to set the members data excel file as {fileName}"
+      }
+    },
+    "coming_soon": {
+      "title": "Coming Soon Alert",
+      "description": "This feature is coming soon, stay tuned!"
+    }
+  },
+
+  "search_bar": {
+    "event": "Search events.....",
+    "member": "Search members....."
+  },
+
+  "device_button_state": {
+    "connect": "Connect",
+    "disconnect": "Disconnect",
+    "connecting": "Connecting",
+    "disconnecting": "Disconnecting"
+  },
+
+  "paginating_page": {
+    "info": "Page {current} of {total}",
+    "next": "Next",
+    "previous": "Previous"
+  },
+
+  "home_page": {
+    "event_title": {
+      "active": "Active Event",
+      "total": "Total Events"
+    },
+    "esp_statuses": {
+      "title": "ESP Status",
+      "status": {
+        "connected": "Connected",
+        "disconnected": "Disconnected"
+      }
+    },
+    "button": {
+      "control": "Control Panel",
+      "setup": "Setup ESP WiFi"
+    }
+  },
+
+  "event_page": {
+    "dialog": {
+      "add_title": "Add New Event",
+      "edit_title": "Edit Event Data",
+      "delete_confirm": {
+        "title": "Delete Confirmation",
+        "description": "Are you sure to delete this event?"
+      },
+
+      "field": {
+        "name": "Event Name",
+        "description": "Event Description",
+        "location": "Event Location",
+        "date": {
+          "label": "Event Date & Time",
+          "hint": "Select Event Date & Time"
+        }
+      },
+
+      "validation": {
+        "name_required": "Event name can't be empty",
+        "description_required": "Event description can't be empty",
+        "location_required": "Event location can't be empty",
+        "date_required": "Event date & time can't be empty"
+      },
+
+      "button": {
+        "create": "Create",
+        "update": "Update",
+        "cancel": "Cancel",
+        "yes": "Yes",
+        "no": "No"
+      }
+    },
+
+    "button": {
+      "add": "Add Event",
+      "edit": "Edit Event",
+      "delete": "Delete Event",
+      "download_recap": "Download Event Recap"
+    },
+
+    "loading_data": {
+      "process": "Load all events data from database...",
+      "no_data": {
+        "title": "Upcoming Events",
+        "description": "No upcoming events. Tap the + button to add a new event"
+      }
+    }
+  },
+
+  "bluetooth_page": {
+    "unknown_device": "Unknown Device",
+    "loading_data": {
+      "process": "Scanning for available Bluetooth...",
+      "no_device": "No available Bluetooth devices found. \nPull down to refresh"
+    }
+  },
+
+  "setting_page": {
+    "general_app": {
+      "title": "General App Settings",
+      "auto_reconnect_bt": {
+        "title": "Auto Reconnect Bluetooth",
+        "description": "Automatically reconnect to the last connected Bluetooth device when disconnected"
+      },
+      "language": {
+        "title": "Language",
+        "description": "Select your app language"
+      }
+    },
+    "general_esp": {
+      "title": "General ESP Settings",
+      "subtitle": "This setting will available when connect to ESP",
+      "auto_reconnect_wifi": {
+        "title": "Auto Reconnect WiFi",
+        "description": "Automatically reconnect ESP to the last connected WiFi device when disconnected"
+      }
+    },
+    "more_info": {
+      "title": "More Information",
+      "user_guidebook": {
+        "title": "User Guidebook",
+        "description": "Show instructions on how to use the app"
+      },
+      "about_app": {
+        "title": "About Application",
+        "description": "Show about application",
+        "dialog": "The attendance management application is a user interface of the attendance id card that can monitor the attendance of participants in certain events."
+      }
+    }
+  },
+
+  "wifi_page": {
+    "title": "WiFi Menu",
+
+    "connect_dialog": {
+      "title": "Enter WiFi Password",
+      "input_box": "Password for {ssid}",
+      "button": "Connect"
+    },
+
+    "loading_data": {
+      "process": "Scanning for available WiFi...",
+      "no_device": "No available WiFi devices found. \nPull down to refresh"
+    }
+  },
+
+  "control_page": {
+    "title": "Control Panel",
+
+    "menu": {
+      "register": {
+        "title": "Register Card",
+        "description": "Open the attendance register menu. This menu is used for register members ID Card in order to be able to presence when there is an event in Presence Menu. Make sure you set (+) the members data excel file first if exists to using automatic mode.",
+        "action": {
+          "set_excel": "Set Excel File",
+          "show_members": "Show Members List"
+        }
+      },
+      "presence": {
+        "title": "Presence Menu",
+        "description": "Open the attendance menu for the event that has been created. There are several options for attendance, namely as a Participant, Committee/BPHI, or Manual Presence.",
+        "logs": {
+          "title": "Presence Logs",
+          "description": "Open the presence logs menu to see all presence activities that have occurred during the event."
+        }
+      },
+
+      "button": {
+        "open": "Click to open",
+        "ok": "Ok"
+      }
+    }
+  },
+
+  "member_page": {
+    "title": "Member List",
+    "button_edit": "Edit Member",
+    "division_label": "Division: {division}",
+
+    "dialog": {
+      "title": "Edit Member Data",
+
+      "field": {
+        "name": "Member Name",
+        "nim": "Member NIM",
+        "division": "Select member division"
+      },
+
+      "validation": {
+        "name_required": "Member name can't be empty",
+        "nim_required": {
+          "empty": "Member NIM can't be empty",
+          "exists": "Member NIM already exists",
+          "invalid": "Member NIM is invalid"
+        }
+      },
+
+      "button": {
+        "update": "Update",
+        "cancel": "Cancel"
+      }
+    },
+
+    "loading_data": {
+      "process": "Load all members data from database...",
+      "no_data": {
+        "title": "No Registered Members",
+        "description": "Register new members in Register Card Page to see them listed here"
+      }
+    }
+  },
+
+  "control_panel_page": {
+    "title": {
+      "register": "Register Menu",
+      "presence": "Presence Menu"
+    },
+
+    "input_box": "Send a message...",
+    "button": {
+      "auto_scroll": "Start/Stop auto scroll",
+      "clear_monitor": "Clear the monitor"
+    },
+
+    "presence_mode": {
+      "title": "Select presence mode",
+      "type": "As {mode}",
+      "list": {
+        "participant": "Participant",
+        "committee": "Committee",
+        "manual": "Manually"
+      }
+    }
+  }
+}
