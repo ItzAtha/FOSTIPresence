@@ -1,0 +1,10 @@
+BasedOnStyle: LLVM
+AccessModifierOffset: 0
+
+BraceWrapping:
+  AfterFunction: false
+  AfterControlStatement: false
+  AfterEnum: false
+  AfterStruct: false
+  AfterClass: false
+  AfterNamespace: false
