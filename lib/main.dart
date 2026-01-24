@@ -6,6 +6,7 @@ import 'package:attendance_management/translations/locale_keys.g.dart';
 import 'package:attendance_management/views/bluetooth_page.dart';
 import 'package:attendance_management/views/events_page.dart';
 import 'package:attendance_management/views/home_page.dart';
+import 'package:attendance_management/views/members_page.dart';
 import 'package:attendance_management/views/settings_page.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
@@ -100,12 +101,12 @@ class MainPage extends StatefulWidget {
 }
 
 class _MainPageState extends State<MainPage> with SingleTickerProviderStateMixin {
-  int _selectedIndex = 0;
+  int _selectedIndex = 2;
   bool _canCloseApp = false;
   DateTime? _currentBackPressTime;
   late final TabController _tabController;
 
-  final pageList = [HomePage(), EventPage(), BluetoothPage(), SettingPage()];
+  final pageList = [MemberPage(), EventPage(), HomePage(), BluetoothPage(), SettingPage()];
 
   void _onItemTapped(int index) {
     setState(() {
@@ -114,9 +115,9 @@ class _MainPageState extends State<MainPage> with SingleTickerProviderStateMixin
   }
 
   void _onPopInvoked(bool canPop, Object? result) {
-    if (_selectedIndex != 0) {
+    if (_selectedIndex != 2) {
       setState(() {
-        _selectedIndex = 0;
+        _selectedIndex = 2;
       });
       return;
     }
@@ -162,7 +163,7 @@ class _MainPageState extends State<MainPage> with SingleTickerProviderStateMixin
   @override
   Widget build(BuildContext context) {
     return PopScope(
-      canPop: _canCloseApp && _selectedIndex == 0 ? true : false,
+      canPop: _canCloseApp && _selectedIndex == 2 ? true : false,
       onPopInvokedWithResult: _onPopInvoked,
       child: Scaffold(
         appBar: AppBar(
@@ -214,19 +215,45 @@ class _MainPageState extends State<MainPage> with SingleTickerProviderStateMixin
             ),
           ],
         ),
+        floatingActionButton: SizedBox(
+          height: 64,
+          width: 64,
+          child: Transform.translate(
+            offset: Offset(0, 10),
+            child: FloatingActionButton(
+              onPressed: () => _onItemTapped(2),
+              elevation: 12.0,
+              shape: CircleBorder(),
+              tooltip: LocaleKeys.navbar_icon_title_home.tr(context: context),
+              backgroundColor: Theme.of(context).brightness == Brightness.light
+                  ? Colors.green.shade400
+                  : Colors.green.shade600,
+              child: Icon(
+                Icons.home,
+                color: _selectedIndex == 2
+                    ? Theme.of(context).bottomNavigationBarTheme.selectedItemColor
+                    : Theme.of(context).bottomNavigationBarTheme.unselectedItemColor,
+              ),
+            ),
+          ),
+        ),
+        floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
         bottomNavigationBar: BottomNavigationBar(
           currentIndex: _selectedIndex,
           type: BottomNavigationBarType.fixed,
           onTap: _onItemTapped,
+          showSelectedLabels: true,
+          showUnselectedLabels: false,
           items: <BottomNavigationBarItem>[
             BottomNavigationBarItem(
-              icon: Icon(Icons.home),
-              label: LocaleKeys.navbar_icon_title_home.tr(context: context),
+              icon: Icon(Icons.group),
+              label: LocaleKeys.navbar_icon_title_member.tr(context: context),
             ),
             BottomNavigationBarItem(
               icon: Icon(Icons.event),
               label: LocaleKeys.navbar_icon_title_event.tr(context: context),
             ),
+            BottomNavigationBarItem(icon: SizedBox.shrink(), label: ""),
             BottomNavigationBarItem(
               icon: Icon(Icons.bluetooth),
               label: LocaleKeys.navbar_icon_title_bluetooth.tr(context: context),
