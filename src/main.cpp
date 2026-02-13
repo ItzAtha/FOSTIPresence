@@ -38,24 +38,16 @@ PostmanAPI api(client, apiUrl);
 Preferences pref;
 // ====================================================================
 
-// ======================[ OLED 128x64 0.96 Inch ]=====================
-// Import package for OLED 128x64
-#include <Adafruit_SSD1306.h>
-#include <Wire.h>
+// ======================[ OLED 172x320 1.47 Inch ]=====================
+// Import package for TFT Display 172x320
+#include <tft_eSPI.h>
 
 // Import the OLED text fonts style
-#include <Fonts/FreeSansBold6pt7b.h>
-#include <Fonts/FreeSansBold7pt7b.h>
+#include <Fonts/GFXFF/FreeSans12pt7b.h>
+#include <Fonts/GFXFF/FreeSans9pt7b.h>
 
-// Initial the OLED screen size
-#define OLED_SCREEN_WIDTH 128
-#define OLED_SCREEN_HEIGHT 64
-#define OLED_RESET -1
-#define OLED_SCREEN_ADDRESS 0x3C
-
-// Create instance of OLED 128x64
-Adafruit_SSD1306 display(OLED_SCREEN_WIDTH, OLED_SCREEN_HEIGHT, &Wire,
-                         OLED_RESET);
+// Create instance of TFT_eSPI 172x320
+TFT_eSPI display = TFT_eSPI();
 // ====================================================================
 
 // ===========================[ NTP CLIENT ]===========================
@@ -110,86 +102,10 @@ int MAX_WIFI_RETRIES = 32;   // Max retries for WiFi connection
 int currentWiFiDot = -1;     // Current dot for WiFi connection
 bool isDisconnected = false; // Flag to check if WiFi is disconnected
 
-// 'user_white', 50x60px
-// This icon is used to represent the user
-const unsigned char userBitmap[] PROGMEM = {
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x3f, 0xf0, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0xff, 0xfc, 0x00, 0x00, 0x00, 0x00, 0x03, 0xff, 0xfe, 0x00, 0x00,
-    0x00, 0x00, 0x07, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00, 0x0f, 0xff, 0xff,
-    0xe0, 0x00, 0x00, 0x00, 0x0f, 0xff, 0xff, 0xf0, 0x00, 0x00, 0x00, 0x1f,
-    0xff, 0xff, 0xf8, 0x00, 0x00, 0x00, 0x1f, 0xff, 0xff, 0xf8, 0x00, 0x00,
-    0x00, 0x3f, 0xff, 0xfc, 0xf8, 0x00, 0x00, 0x00, 0x3f, 0xff, 0xf8, 0xf8,
-    0x00, 0x00, 0x00, 0x3f, 0xff, 0xe0, 0xf8, 0x00, 0x00, 0x00, 0x3f, 0xff,
-    0x81, 0xf8, 0x00, 0x00, 0x00, 0x0f, 0xf0, 0x01, 0xf8, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0xf8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x38, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x38, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x38, 0x00, 0x00, 0x00, 0x06, 0x00, 0x00, 0x38, 0x00, 0x00, 0x00, 0x07,
-    0x00, 0x00, 0x38, 0x00, 0x00, 0x00, 0x07, 0x00, 0x00, 0x38, 0x00, 0x00,
-    0x00, 0x07, 0x00, 0x00, 0x38, 0x00, 0x00, 0x00, 0x07, 0x00, 0x00, 0x38,
-    0x00, 0x00, 0x00, 0x07, 0x80, 0x00, 0x78, 0x00, 0x00, 0x00, 0x03, 0x80,
-    0x00, 0xf0, 0x00, 0x00, 0x00, 0x03, 0xc0, 0x00, 0xf0, 0x00, 0x00, 0x00,
-    0x01, 0xe0, 0x03, 0xe0, 0x00, 0x00, 0x00, 0x00, 0xf8, 0x07, 0xc0, 0x00,
-    0x00, 0x00, 0x00, 0x7f, 0x3f, 0x80, 0x00, 0x00, 0x00, 0x00, 0x3f, 0xff,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x0f, 0xfc, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x01, 0xe0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x07, 0xfc, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x7f, 0xff, 0x80, 0x00, 0x00, 0x00, 0x01, 0xff,
-    0xff, 0xe0, 0x00, 0x00, 0x00, 0x07, 0xf0, 0x03, 0xf8, 0x00, 0x00, 0x00,
-    0x1f, 0x80, 0x00, 0x7e, 0x00, 0x00, 0x00, 0x3e, 0x00, 0x00, 0x1f, 0x00,
-    0x00, 0x00, 0x7c, 0x00, 0x00, 0x0f, 0x80, 0x00, 0x00, 0xf8, 0x00, 0x00,
-    0x07, 0xc0, 0x00, 0x00, 0xf0, 0x00, 0x00, 0x03, 0xe0, 0x00, 0x01, 0xe0,
-    0x00, 0x00, 0x01, 0xe0, 0x00, 0x03, 0xc0, 0x00, 0x00, 0x00, 0xf0, 0x00,
-    0x03, 0x80, 0x00, 0x00, 0x00, 0x70, 0x00, 0x03, 0x80, 0x00, 0x00, 0x00,
-    0x70, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
-
-// 'Card_icon', 68x50px
-// This icon is used to represent the card
-static const unsigned char PROGMEM cardBitmap[] = {
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x01, 0xc0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x7f, 0xf0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0f, 0xff, 0x78, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x03, 0xff, 0xc0, 0x18, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0xff, 0xf0, 0x00, 0x18, 0x00, 0x00, 0x00, 0x00, 0x1f, 0xfe, 0x00,
-    0x00, 0x1c, 0x00, 0x00, 0x00, 0x07, 0xff, 0xc0, 0x00, 0x00, 0x0c, 0x00,
-    0x00, 0x01, 0xff, 0xe0, 0x00, 0x00, 0x00, 0x0c, 0x00, 0x00, 0x3f, 0xfc,
-    0x00, 0x00, 0x00, 0x00, 0x0c, 0x00, 0x07, 0xff, 0xc0, 0x00, 0x00, 0x00,
-    0x00, 0x0c, 0x00, 0x3f, 0xe0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0e, 0x00,
-    0x38, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x06, 0x00, 0x70, 0x00, 0x00,
-    0x00, 0x00, 0x01, 0xc0, 0x06, 0x00, 0x60, 0x00, 0x00, 0x00, 0x00, 0x0f,
-    0xf0, 0x06, 0x00, 0x60, 0x00, 0x00, 0x00, 0x00, 0x1f, 0xf8, 0x06, 0x00,
-    0x60, 0x00, 0x00, 0x00, 0x00, 0x3f, 0xfc, 0x06, 0x00, 0x70, 0x00, 0x00,
-    0x00, 0x00, 0x3f, 0x9c, 0x07, 0x00, 0x30, 0x00, 0x00, 0x00, 0x00, 0x38,
-    0x0e, 0x07, 0x00, 0x30, 0x00, 0x00, 0x00, 0x00, 0x38, 0x4e, 0x03, 0x00,
-    0x30, 0x00, 0x00, 0x00, 0x00, 0x38, 0x0e, 0x03, 0x00, 0x30, 0x00, 0x20,
-    0x00, 0x00, 0x38, 0x0e, 0x03, 0x00, 0x30, 0x07, 0xf0, 0x00, 0x00, 0x38,
-    0x0e, 0x03, 0x00, 0x38, 0x1f, 0xf0, 0x00, 0x00, 0x3c, 0x1e, 0x03, 0x80,
-    0x18, 0x1f, 0xf0, 0x00, 0x00, 0x3e, 0x1e, 0x01, 0x80, 0x18, 0x1f, 0xf0,
-    0x00, 0x00, 0x1f, 0x01, 0x01, 0x80, 0x18, 0x1f, 0xf8, 0x00, 0x00, 0x1c,
-    0x01, 0xc1, 0x80, 0x18, 0x1f, 0xf8, 0x00, 0x00, 0x10, 0x03, 0xc1, 0x80,
-    0x18, 0x0f, 0xf8, 0x00, 0x00, 0x38, 0x07, 0xc1, 0xc0, 0x0c, 0x0f, 0xc0,
-    0x00, 0x00, 0x3c, 0x1f, 0xc0, 0xc0, 0x0c, 0x00, 0x00, 0x00, 0x00, 0x3f,
-    0xff, 0x00, 0xc0, 0x0c, 0x00, 0x00, 0x00, 0x00, 0x3f, 0xf8, 0x00, 0xc0,
-    0x0c, 0x00, 0x00, 0x00, 0x00, 0x1f, 0x00, 0x00, 0xc0, 0x0c, 0x00, 0x00,
-    0x1f, 0xe0, 0x00, 0x00, 0x00, 0xe0, 0x0e, 0x00, 0x03, 0xff, 0xc0, 0x00,
-    0x00, 0x00, 0xe0, 0x06, 0x00, 0x3f, 0xfc, 0x00, 0x00, 0x00, 0x00, 0xe0,
-    0x06, 0x03, 0xfe, 0x00, 0x00, 0x00, 0x00, 0x00, 0xc0, 0x06, 0x03, 0xc0,
-    0x00, 0x00, 0x00, 0x00, 0x0f, 0xc0, 0x06, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x01, 0xff, 0x80, 0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x7f, 0xf8, 0x00,
-    0x07, 0x00, 0x00, 0x00, 0x00, 0x1f, 0xfe, 0x00, 0x00, 0x03, 0x00, 0x00,
-    0x00, 0x03, 0xff, 0xc0, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0xff, 0xf8,
-    0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x3f, 0xfe, 0x00, 0x00, 0x00, 0x00,
-    0x03, 0x00, 0x07, 0xff, 0xc0, 0x00, 0x00, 0x00, 0x00, 0x03, 0x80, 0xff,
-    0xf0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0xff, 0xfc, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0xff, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+#include <appIconBitmaps.h>
+#include <fostiLogoBitmaps.h>
+#include <idCardIconBitmaps.h>
+#include <userIconBitmaps.h>
 
 // Define ESP32 RTOS task method
 void TaskLoadingBar(void *pvParameters);
@@ -285,19 +201,16 @@ void setup() {
   SPI.begin(18, 19, 23, SS_PIN);
   rfid.PCD_Init();
 
-  Wire.begin(17, 16);
-  if (!display.begin(SSD1306_SWITCHCAPVCC, OLED_SCREEN_ADDRESS)) {
-    Serial.println("SSD1306 allocation failed!");
-    while (1)
-      ; // Don't proceed, loop forever
-  }
+  display.init();
+  display.setRotation(1);
+  display.setSwapBytes(true);
+  display.fillScreen(TFT_BLACK);
+  display.setTextColor(TFT_WHITE);
+  display.setFreeFont(&FreeSans12pt7b);
 
-  display.display();
+  display.pushImage(40, 25, appIconWidth, appIconHeight, appIcon);
+  display.pushImage(185, 25, fostiLogoWidth, fostiLogoHeight, fostiLogo);
   delay(2000);
-
-  display.clearDisplay();
-  display.setTextColor(SSD1306_WHITE);
-  display.setFont(&FreeSansBold7pt7b);
 
   xTaskCreate(TaskLoadingBar, "Loading Bar", 2048, NULL, 1,
               &taskLoadingHandler);
@@ -449,6 +362,7 @@ void setup() {
       ; // Don't proceed, loop forever
   }
   delay(1500);
+  display.fillScreen(TFT_BLACK);
   vTaskDelete(taskLoadingHandler);
 
   // Start the tasks for each system
@@ -772,11 +686,14 @@ void showMemberData(String UID, bool showOnLED = true) {
         "</nl>Member with UID %s isn't exists in member table!</nl></nl>\n",
         UID);
 
-    display.clearDisplay();
-    display.drawBitmap(32, 0, cardBitmap, 68, 50, SSD1306_WHITE);
-    display.setCursor(8, 60);
-    display.print("Invalid UID Data!");
-    display.display();
+    display.setTextColor(TFT_BLACK);
+    display.setCursor((display.width() - 160) / 2,
+                      (display.height() + 130) / 2);
+    display.print("Success Log In!");
+    display.setTextColor(TFT_WHITE);
+    display.setCursor((display.width() - 150) / 2,
+                      (display.height() + 130) / 2);
+    display.print("Invalid ID Data!");
     return;
   }
 
@@ -804,15 +721,15 @@ void showMemberData(String UID, bool showOnLED = true) {
   // If showOnLED is true, display the member data on the OLED
   // Otherwise, only print to Serial Monitor
   if (showOnLED) {
-    display.clearDisplay();
-    display.setFont(&FreeSansBold6pt7b);
-    display.drawBitmap(0, 0, userBitmap, 50, 60, SSD1306_WHITE);
+    display.fillScreen(TFT_BLACK);
+    display.setFreeFont(&FreeSans9pt7b);
+    display.pushImage(20, 35, userIconWidth, userIconHeight, userIcon);
 
-    int currentY = showDivision ? 8 : 16;
+    int currentY = 60;
     int currentLine = 1;
     memberData.foreach ([&currentY, &currentLine](const String &colName,
                                                   const String &colValue) {
-      display.setCursor(52, currentY);
+      display.setCursor((display.width() - 20) / 2, currentY);
       if (currentLine != 3) {
         display.print(colValue);
       } else {
@@ -836,11 +753,10 @@ void showMemberData(String UID, bool showOnLED = true) {
         name.trim();
         display.print(name);
       }
-      currentY += 16;
+      currentY += 20;
       currentLine++;
     });
-    display.display();
-    display.setFont(&FreeSansBold7pt7b);
+    display.setFreeFont(&FreeSans12pt7b);
   }
 }
 
@@ -860,12 +776,11 @@ void showAttendanceMenu() {
   Serial.println("========================================");
   Serial.println();
 
-  display.clearDisplay();
-  display.setCursor(2, 24);
-  display.print("See Serial Monitor");
-  display.setCursor(0, 42);
-  display.print("for Menu Selection!");
-  display.display();
+  display.fillScreen(TFT_BLACK);
+  display.setCursor(40, 60);
+  display.print("See Presence Manager");
+  display.setCursor(40, 90);
+  display.print("app for Menu Selection!");
 }
 
 /**
@@ -884,16 +799,20 @@ void memberAttendance(String UID, PresenceOption option) {
 
   // Check if member exists in PostmanAPI database
   String *memberID = api.getMemberByUID("/api/mahasiswa", UID);
+
   if (memberID == nullptr) {
     Serial.printf("Member with UID %s isn't exists in member table!\n", UID);
     TransmitterPort.printf(
         "Member with UID %s isn't exists in member table!</nl></nl>\n", UID);
 
-    display.clearDisplay();
-    display.drawBitmap(32, 0, cardBitmap, 68, 50, SSD1306_WHITE);
-    display.setCursor(10, 60);
+    display.setTextColor(TFT_BLACK);
+    display.setCursor((display.width() - 180) / 2,
+                      (display.height() + 130) / 2);
+    display.print("ID Card Detected!");
+    display.setTextColor(TFT_WHITE);
+    display.setCursor((display.width() - 150) / 2,
+                      (display.height() + 130) / 2);
     display.print("Invalid ID Data!");
-    display.display();
 
     delay(1500);
     Serial.println();
@@ -914,64 +833,70 @@ void memberAttendance(String UID, PresenceOption option) {
     String formattedCurrDate = ntpClient.getFormattedDate();
     String currentDate = splitString(formattedCurrDate, 'T').get(0);
 
-    HashMap<String, String> logsColumn;
-    logsColumn.put("tanggal_masuk", "last_login");
-    HashMap<String, String> logsData =
-        api.readData("/api/mahasiswa", UID, logsColumn);
+    // TODO: Rework the logic to check if member has already logged in today
+    // HashMap<String, String> logsColumn;
+    // logsColumn.put("tanggal_masuk", "last_login");
+    // HashMap<String, String> logsData =
+    //     api.readData("/api/mahasiswa", UID, logsColumn);
 
-    bool isLoggedIn = logsData.get("last_login") != nullptr;
+    // bool isLoggedIn = logsData.get("last_login") != nullptr;
 
-    HashMap<String, String> eventsColumn;
-    eventsColumn.put("judul", "event_name");
-    HashMap<String, String> eventsData =
-        api.readData("/api/event", "", eventsColumn);
-    String eventName = eventsData.get("event_name");
+    // HashMap<String, String> eventsColumn;
+    // eventsColumn.put("judul", "event_name");
+    // HashMap<String, String> eventsData =
+    //     api.readData("/api/event", "", eventsColumn);
+    // String eventName = eventsData.get("event_name");
 
     // Check if member has already logged in for the current event today
-    if (isLoggedIn && eventName.equals(currentEvent)) {
-      String logInDateTime = logsData.get("last_login");
-      String logInDate = splitString(logInDateTime, 'T').get(0);
+    // if (isLoggedIn && eventName.equals(currentEvent)) {
+    //   String logInDateTime = logsData.get("last_login");
+    //   String logInDate = splitString(logInDateTime, 'T').get(0);
 
-      // Check if member has already attended today
-      if (logInDate.equals(currentDate)) {
-        Serial.printf("Member with UID %s has already attended today!\n", UID);
-        TransmitterPort.printf(
-            "Member with UID %s has already attended today!</nl></nl>\n", UID);
+    //   // Check if member has already attended today
+    //   if (logInDate.equals(currentDate)) {
+    //     Serial.printf("Member with UID %s has already attended today!\n",
+    //     UID); TransmitterPort.printf(
+    //         "Member with UID %s has already attended today!</nl></nl>\n",
+    //         UID);
 
-        display.clearDisplay();
-        display.drawBitmap(32, 0, cardBitmap, 68, 50, SSD1306_WHITE);
-        display.setCursor(12, 60);
-        display.print("Already Log In!");
-        display.display();
+    //     display.setTextColor(TFT_BLACK);
+    //     display.setCursor((display.width() - 180) / 2,
+    //                       (display.height() + 130) / 2);
+    //     display.print("ID Card Detected!");
+    //     display.setTextColor(TFT_WHITE);
+    //     display.setCursor((display.width() - 150) / 2,
+    //                       (display.height() + 130) / 2);
+    //     display.print("Already Log In!");
 
-        delay(1500);
-        Serial.println();
-        return;
-      } else if (!logInDate.equals(currentDate) &&
-                 eventName.equals(currentEvent)) {
-        Serial.printf("Member with UID %s has already attended on event %s!\n",
-                      UID, eventName.c_str());
-        TransmitterPort.printf(
-            "Member with UID %s has already attended on event %s!</nl></nl>\n",
-            UID, eventName.c_str());
+    //     delay(1500);
+    //     Serial.println();
+    //     return;
+    //   } else if (!logInDate.equals(currentDate) &&
+    //              eventName.equals(currentEvent)) {
+    //     Serial.printf("Member with UID %s has already attended on event
+    //     %s!\n",
+    //                   UID, eventName.c_str());
+    //     TransmitterPort.printf(
+    //         "Member with UID %s has already attended on event
+    //         %s!</nl></nl>\n", UID, eventName.c_str());
 
-        display.clearDisplay();
-        display.drawBitmap(32, 0, cardBitmap, 68, 50, SSD1306_WHITE);
-        display.setCursor(12, 60);
-        display.print("Already Log In!");
-        display.display();
+    //     display.clearDisplay();
+    //     display.drawBitmap(32, 0, cardBitmap, 68, 50, SSD1306_WHITE);
+    //     display.setCursor(12, 60);
+    //     display.print("Already Log In!");
+    //     display.display();
 
-        delay(1500);
-        Serial.println();
-        return;
-      }
-    }
+    //     delay(1500);
+    //     Serial.println();
+    //     return;
+    //   }
+    // }
 
     // Update current event name in preferences if changed
-    if (!eventName.equals(currentEvent)) {
-      pref.putString("event_name", eventName);
-      currentEvent = pref.getString("event_name");
-    }
+    // if (!eventName.equals(currentEvent)) {
+    //   pref.putString("event_name", eventName);
+    //   currentEvent = pref.getString("event_name");
+    // }
 
     HashMap<String, String> attendanceData;
     attendanceData.put("uid", UID);
@@ -991,11 +916,14 @@ void memberAttendance(String UID, PresenceOption option) {
           "Member with UID %s doing Log In attendance on %s!</nl></nl>\n", UID,
           currentDate);
 
-      display.clearDisplay();
-      display.drawBitmap(32, 0, cardBitmap, 68, 50, SSD1306_WHITE);
-      display.setCursor(12, 60);
+      display.setTextColor(TFT_BLACK);
+      display.setCursor((display.width() - 180) / 2,
+                        (display.height() + 130) / 2);
+      display.print("ID Card Detected!");
+      display.setTextColor(TFT_WHITE);
+      display.setCursor((display.width() - 160) / 2,
+                        (display.height() + 130) / 2);
       display.print("Success Log In!");
-      display.display();
       delay(500);
 
       showMemberData(UID);
@@ -1003,11 +931,15 @@ void memberAttendance(String UID, PresenceOption option) {
       Serial.println("Failed to write data to PostmanAPI Server!");
       TransmitterPort.println(
           "Failed to write data to PostmanAPI Server!</nl>");
-      display.clearDisplay();
-      display.drawBitmap(32, 0, cardBitmap, 68, 50, SSD1306_WHITE);
-      display.setCursor(2, 60);
-      display.print("Failed Presence!");
-      display.display();
+
+      display.setTextColor(TFT_BLACK);
+      display.setCursor((display.width() - 180) / 2,
+                        (display.height() + 130) / 2);
+      display.print("ID Card Detected!");
+      display.setTextColor(TFT_WHITE);
+      display.setCursor((display.width() - 210) / 2,
+                        (display.height() + 130) / 2);
+      display.print("Failed to Attendance!");
     }
   } else {
     Serial.println("Failed to update NTP time!");
@@ -1165,11 +1097,14 @@ void manualAttendance() {
             "Member with UID %s has already attended today!</nl></nl>\n",
             *memberCardUID);
 
-        display.clearDisplay();
-        display.drawBitmap(32, 0, cardBitmap, 68, 50, SSD1306_WHITE);
-        display.setCursor(12, 60);
+        display.setTextColor(TFT_BLACK);
+        display.setCursor((display.width() - 180) / 2,
+                          (display.height() + 130) / 2);
+        display.print("ID Card Detected!");
+        display.setTextColor(TFT_WHITE);
+        display.setCursor((display.width() - 150) / 2,
+                          (display.height() + 130) / 2);
         display.print("Already Log In!");
-        display.display();
 
         delay(1500);
         Serial.println();
@@ -1182,11 +1117,14 @@ void manualAttendance() {
             "Member with UID %s has already attended on event %s!</nl></nl>\n",
             *memberCardUID, eventName.c_str());
 
-        display.clearDisplay();
-        display.drawBitmap(32, 0, cardBitmap, 68, 50, SSD1306_WHITE);
-        display.setCursor(12, 60);
+        display.setTextColor(TFT_BLACK);
+        display.setCursor((display.width() - 180) / 2,
+                          (display.height() + 130) / 2);
+        display.print("ID Card Detected!");
+        display.setTextColor(TFT_WHITE);
+        display.setCursor((display.width() - 150) / 2,
+                          (display.height() + 130) / 2);
         display.print("Already Log In!");
-        display.display();
 
         delay(1500);
         Serial.println();
@@ -1245,11 +1183,13 @@ String *getCardUID() {
   Serial.println();
   Serial.println("**Card Detected!**");
   TransmitterPort.println("</nl>Card Detected!");
-  display.clearDisplay();
-  display.drawBitmap(32, 0, cardBitmap, 68, 50, SSD1306_WHITE);
-  display.setCursor(6, 60);
+
+  display.setTextColor(TFT_BLACK);
+  display.setCursor((display.width() - 180) / 2, (display.height() + 130) / 2);
+  display.print("Tap Your ID Card!");
+  display.setTextColor(TFT_WHITE);
+  display.setCursor((display.width() - 180) / 2, (display.height() + 130) / 2);
   display.print("ID Card Detected!");
-  display.display();
 
   // Get the UID of the card
   String *memberUID = new String();
@@ -1282,12 +1222,11 @@ void showMenu() {
   Serial.println("========================================");
   Serial.println();
 
-  display.clearDisplay();
-  display.setCursor(2, 24);
-  display.print("See Serial Monitor");
-  display.setCursor(0, 42);
-  display.print("for Menu Selection!");
-  display.display();
+  display.fillScreen(TFT_BLACK);
+  display.setCursor(40, 60);
+  display.print("See Presence Manager");
+  display.setCursor(40, 90);
+  display.print("app for Menu Selection!");
 }
 
 /**
@@ -1316,26 +1255,46 @@ void TaskLoadingBar(void *pvParameters) {
 
   for (;;) {
     currentLoadingDot++;
-    display.clearDisplay();
+    int x = (display.width() - 100) / 2;
+    int y = (display.height() + 120) / 2;
 
     if (currentLoadingDot == 0) {
-      display.setCursor(28, 32);
+      display.setTextColor(TFT_BLACK);
+      display.setCursor(x, y);
+      display.print("Loading....");
+      display.setTextColor(TFT_WHITE);
+      display.setCursor(x, y);
       display.print("Loading");
     } else if (currentLoadingDot == 1) {
-      display.setCursor(28, 32);
+      display.setTextColor(TFT_BLACK);
+      display.setCursor(x, y);
+      display.print("Loading");
+      display.setTextColor(TFT_WHITE);
+      display.setCursor(x, y);
       display.print("Loading.");
     } else if (currentLoadingDot == 2) {
-      display.setCursor(28, 32);
+      display.setTextColor(TFT_BLACK);
+      display.setCursor(x, y);
+      display.print("Loading.");
+      display.setTextColor(TFT_WHITE);
+      display.setCursor(x, y);
       display.print("Loading..");
     } else if (currentLoadingDot == 3) {
-      display.setCursor(28, 32);
+      display.setTextColor(TFT_BLACK);
+      display.setCursor(x, y);
+      display.print("Loading..");
+      display.setTextColor(TFT_WHITE);
+      display.setCursor(x, y);
       display.print("Loading...");
     } else if (currentLoadingDot == 4) {
-      display.setCursor(28, 32);
+      display.setTextColor(TFT_BLACK);
+      display.setCursor(x, y);
+      display.print("Loading...");
+      display.setTextColor(TFT_WHITE);
+      display.setCursor(x, y);
       display.print("Loading....");
       currentLoadingDot = -1;
     }
-    display.display();
     vTaskDelay(pdMS_TO_TICKS(500));
   }
 }
@@ -1618,11 +1577,12 @@ void TaskAttendance(void *pvParameters) {
         TransmitterPort.println(
             "Please put member id card into RFID Reader...");
 
-        display.clearDisplay();
-        display.drawBitmap(32, 0, cardBitmap, 68, 50, SSD1306_WHITE);
-        display.setCursor(6, 60);
+        display.fillScreen(TFT_BLACK);
+        display.pushImage(90, 20, idCardIconWidth, idCardIconHeight,
+                          idCardIcon);
+        display.setCursor((display.width() - 180) / 2,
+                          (display.height() + 130) / 2);
         display.print("Tap Your ID Card!");
-        display.display();
       }
     }
     vTaskDelay(pdMS_TO_TICKS(500));
