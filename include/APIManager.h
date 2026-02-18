@@ -10,6 +10,12 @@
 #include <ArrayList.h>
 #include <HashMap.h>
 
+typedef enum {
+  DATA_EXISTS,
+  DATA_NOT_FOUND,
+  DATA_DESERIALIZE_ERROR
+} dataExistence_t;
+
 /**
  * @brief PostmanAPI class for managing API requests to the Postman API.
  * This class provides methods to interact with the Postman API for
@@ -32,27 +38,29 @@ class PostmanAPI {
   // This client is used for secure connections (HTTPS)
   WiFiClientSecure client;
 
+  String *getMemberByUID(String endpoint, String cardUID);
+  String *getMemberByName(String endpoint, String name);
+
   public:
   // Constructor of PostmanAPI class
   PostmanAPI(const WiFiClientSecure &client, const String &url);
 
   bool begin();
   void end();
+
   String getUrl() const;
   String getResponse() const;
   int getResponseCode() const;
 
-  bool createData(String gateway, JsonDocument jsonData);
-  HashMap<String, String> readData(String gateway, String cardUID,
+  bool createData(String endpoint, JsonDocument jsonData);
+  HashMap<String, String> readData(String endpoint, String cardUID,
                                    HashMap<String, String> columnData);
-  bool updateData(String gateway, String cardUID,
+  bool updateData(String endpoint, String cardUID,
                   HashMap<String, String> columnData);
-  bool deleteData(String gateway, String key);
+  bool deleteData(String endpoint, String key);
 
-  bool isDataExists(String gateway);
-  String *getMemberByUID(String gateway, String cardUID);
-  String *getMemberByName(String gateway, String name);
-  String *getEventByName(String gateway, String eventName);
+  dataExistence_t isDataExists(String endpoint, String *id = nullptr,
+                               String *responseData = nullptr);
 };
 
 #endif
