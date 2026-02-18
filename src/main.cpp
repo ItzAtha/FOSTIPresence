@@ -218,6 +218,8 @@ void setup() {
   ReceiverPort.begin(115200, SERIAL_8N1, 26, -1);
   TransmitterPort.begin(115200, SERIAL_8N1, -1, 27);
 
+  // TODO: Change wifi code to use modem connection using sim card with SIM800L
+  // module
   JsonDocument doc;
   String callbackData;
   doc["dataType"] = "RTDATA";
@@ -403,6 +405,8 @@ bool isDigitString(const String &str) {
   return true;
 }
 
+// TODO: Add register member to OLED LCD and add loading animation when
+// registering member data to PostmanAPI Server
 /**
  * @brief Register data from RFID Card.
  * This function reads the UID from the RFID Card and prompts the user to enter
@@ -677,26 +681,6 @@ void registerData() {
  * @note This function uses the PostmanAPI to retrieve member data.
  */
 void showMemberData(String UID, bool showOnLED = true) {
-  String *memberUID = api.getMemberByUID("/api/mahasiswa", UID);
-
-  // Check if member exists in PostmanAPI database
-  if (memberUID == nullptr) {
-    Serial.printf("Member with UID %s isn't exists in member table!\n", UID);
-    TransmitterPort.printf(
-        "</nl>Member with UID %s isn't exists in member table!</nl></nl>\n",
-        UID);
-
-    display.setTextColor(TFT_BLACK);
-    display.setCursor((display.width() - 160) / 2,
-                      (display.height() + 130) / 2);
-    display.print("Success Log In!");
-    display.setTextColor(TFT_WHITE);
-    display.setCursor((display.width() - 150) / 2,
-                      (display.height() + 130) / 2);
-    display.print("Invalid ID Data!");
-    return;
-  }
-
   // Map member data to display columns
   HashMap<String, String> column;
   column.put("uid", "Member UID");
@@ -725,6 +709,7 @@ void showMemberData(String UID, bool showOnLED = true) {
     display.setFreeFont(&FreeSans9pt7b);
     display.pushImage(20, 35, userIconWidth, userIconHeight, userIcon);
 
+    // TODO: Change text size or check name lenght to prevent text overflow on OLED display
     int currentY = 60;
     int currentLine = 1;
     memberData.foreach ([&currentY, &currentLine](const String &colName,
@@ -783,6 +768,8 @@ void showAttendanceMenu() {
   display.print("app for Menu Selection!");
 }
 
+// TODO: Add loading animation in OLED LCD when marking member attendance to
+// PostmanAPI Server
 /**
  * @brief Mark attendance for a member.
  * This function to mark attendance of member by reading
@@ -798,9 +785,7 @@ void memberAttendance(String UID, PresenceOption option) {
   delay(500);
 
   // Check if member exists in PostmanAPI database
-  String *memberID = api.getMemberByUID("/api/mahasiswa", UID);
-
-  if (memberID == nullptr) {
+  if (api.isDataExists("/api/mahasiswa", &UID) != DATA_EXISTS) {
     Serial.printf("Member with UID %s isn't exists in member table!\n", UID);
     TransmitterPort.printf(
         "Member with UID %s isn't exists in member table!</nl></nl>\n", UID);
@@ -833,70 +818,34 @@ void memberAttendance(String UID, PresenceOption option) {
     String formattedCurrDate = ntpClient.getFormattedDate();
     String currentDate = splitString(formattedCurrDate, 'T').get(0);
 
-    // TODO: Rework the logic to check if member has already logged in today
-    // HashMap<String, String> logsColumn;
-    // logsColumn.put("tanggal_masuk", "last_login");
-    // HashMap<String, String> logsData =
-    //     api.readData("/api/mahasiswa", UID, logsColumn);
+    HashMap<String, String> eventsColumn;
+    eventsColumn.put("judul", "event_name");
+    HashMap<String, String> eventsData =
+        api.readData("/api/event", "", eventsColumn);
 
-    // bool isLoggedIn = logsData.get("last_login") != nullptr;
+    String eventName = eventsData.getOrDefault("event_name", "");
 
-    // HashMap<String, String> eventsColumn;
-    // eventsColumn.put("judul", "event_name");
-    // HashMap<String, String> eventsData =
-    //     api.readData("/api/event", "", eventsColumn);
-    // String eventName = eventsData.get("event_name");
+    // Check if member has already attended on the event
+    if (api.isDataExists("/api/event", &UID) == DATA_EXISTS) {
+      Serial.printf("Member with UID %s has already attended on event %s!\n",
+                    UID, eventName.c_str());
+      TransmitterPort.printf(
+          "Member with UID %s has already attended on event %s!</nl></nl>\n",
+          UID, eventName.c_str());
 
-    // Check if member has already logged in for the current event today
-    // if (isLoggedIn && eventName.equals(currentEvent)) {
-    //   String logInDateTime = logsData.get("last_login");
-    //   String logInDate = splitString(logInDateTime, 'T').get(0);
+      display.setTextColor(TFT_BLACK);
+      display.setCursor((display.width() - 180) / 2,
+                        (display.height() + 130) / 2);
+      display.print("ID Card Detected!");
+      display.setTextColor(TFT_WHITE);
+      display.setCursor((display.width() - 160) / 2,
+                        (display.height() + 130) / 2);
+      display.print("Already Log In!");
 
-    //   // Check if member has already attended today
-    //   if (logInDate.equals(currentDate)) {
-    //     Serial.printf("Member with UID %s has already attended today!\n",
-    //     UID); TransmitterPort.printf(
-    //         "Member with UID %s has already attended today!</nl></nl>\n",
-    //         UID);
-
-    //     display.setTextColor(TFT_BLACK);
-    //     display.setCursor((display.width() - 180) / 2,
-    //                       (display.height() + 130) / 2);
-    //     display.print("ID Card Detected!");
-    //     display.setTextColor(TFT_WHITE);
-    //     display.setCursor((display.width() - 150) / 2,
-    //                       (display.height() + 130) / 2);
-    //     display.print("Already Log In!");
-
-    //     delay(1500);
-    //     Serial.println();
-    //     return;
-    //   } else if (!logInDate.equals(currentDate) &&
-    //              eventName.equals(currentEvent)) {
-    //     Serial.printf("Member with UID %s has already attended on event
-    //     %s!\n",
-    //                   UID, eventName.c_str());
-    //     TransmitterPort.printf(
-    //         "Member with UID %s has already attended on event
-    //         %s!</nl></nl>\n", UID, eventName.c_str());
-
-    //     display.clearDisplay();
-    //     display.drawBitmap(32, 0, cardBitmap, 68, 50, SSD1306_WHITE);
-    //     display.setCursor(12, 60);
-    //     display.print("Already Log In!");
-    //     display.display();
-
-    //     delay(1500);
-    //     Serial.println();
-    //     return;
-    //   }
-    // }
-
-    // Update current event name in preferences if changed
-    // if (!eventName.equals(currentEvent)) {
-    //   pref.putString("event_name", eventName);
-    //   currentEvent = pref.getString("event_name");
-    // }
+      delay(1500);
+      Serial.println();
+      return;
+    }
 
     HashMap<String, String> attendanceData;
     attendanceData.put("uid", UID);
@@ -952,6 +901,8 @@ void memberAttendance(String UID, PresenceOption option) {
   Serial.println();
 }
 
+// TODO: Add loading animation in OLED LCD when marking member attendance to
+// PostmanAPI Server and add display message in OLED LCD
 /**
  * @brief Manually mark attendance for a member.
  * This function allows the user to manually enter a member's name
@@ -1054,8 +1005,9 @@ void manualAttendance() {
   delay(500);
 
   // Check if member exists in PostmanAPI database
-  String *memberCardUID = api.getMemberByName("/api/mahasiswa", namaAnggota);
-  if (memberCardUID == nullptr) {
+  String memberCardUID;
+  if (api.isDataExists("/api/mahasiswa", &namaAnggota, &memberCardUID) !=
+      DATA_EXISTS) {
     Serial.printf("Member with name %s isn't exists in member table!\n",
                   namaAnggota.c_str());
     TransmitterPort.printf(
@@ -1066,6 +1018,9 @@ void manualAttendance() {
     Serial.println();
     return;
   }
+  Serial.println("Member name is exists in member table!");
+  Serial.println("Member Card UID : " + memberCardUID);
+  return;
 
   if (ntpClient.forceUpdate()) {
     String formattedCurrDate = ntpClient.getFormattedDate();
@@ -1074,7 +1029,7 @@ void manualAttendance() {
     HashMap<String, String> logsColumn;
     logsColumn.put("tanggal_masuk", "last_login");
     HashMap<String, String> logsData =
-        api.readData("/api/mahasiswa", *memberCardUID, logsColumn);
+        api.readData("/api/mahasiswa", memberCardUID, logsColumn);
 
     bool isLoggedIn = logsData.get("last_login") != nullptr;
 
@@ -1092,10 +1047,10 @@ void manualAttendance() {
       // Check if member has already attended today
       if (logInDate.equals(currentDate)) {
         Serial.printf("Member with UID %s has already attended today!\n",
-                      *memberCardUID);
+                      memberCardUID);
         TransmitterPort.printf(
             "Member with UID %s has already attended today!</nl></nl>\n",
-            *memberCardUID);
+            memberCardUID);
 
         display.setTextColor(TFT_BLACK);
         display.setCursor((display.width() - 180) / 2,
@@ -1112,10 +1067,10 @@ void manualAttendance() {
       } else if (!logInDate.equals(currentDate) &&
                  eventName.equals(currentEvent)) {
         Serial.printf("Member with UID %s has already attended on event %s!\n",
-                      *memberCardUID, eventName.c_str());
+                      memberCardUID, eventName.c_str());
         TransmitterPort.printf(
             "Member with UID %s has already attended on event %s!</nl></nl>\n",
-            *memberCardUID, eventName.c_str());
+            memberCardUID, eventName.c_str());
 
         display.setTextColor(TFT_BLACK);
         display.setCursor((display.width() - 180) / 2,
@@ -1145,13 +1100,13 @@ void manualAttendance() {
       delay(500);
       Serial.println();
       Serial.printf("You forced Member with UID %s to absent on %s!\n",
-                    *memberCardUID, currentDate);
+                    memberCardUID, currentDate);
       TransmitterPort.printf(
           "You forced Member with UID %s to absent on %s!</nl></nl>\n",
-          *memberCardUID, currentDate);
+          memberCardUID, currentDate);
       delay(500);
 
-      showMemberData(*memberCardUID, false);
+      showMemberData(memberCardUID, false);
     } else {
       Serial.println("Failed to write data to PostmanAPI Server!");
       TransmitterPort.println(
@@ -1299,6 +1254,7 @@ void TaskLoadingBar(void *pvParameters) {
   }
 }
 
+// TODO: Rework the code to use modem connection using sim card with SIM800L
 /**
  * @brief Handle checking the WiFi connection status.
  * This task runs in a loop and checks if the ESP32 is connected to WiFi.
