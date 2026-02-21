@@ -1,4 +1,5 @@
 #include <APIManager.h>
+#include <credentials.h>
 
 /**
  * @brief Constructor for the PostmanAPI class.
@@ -13,7 +14,7 @@
 PostmanAPI::PostmanAPI(const WiFiClientSecure &client, const String &url) {
   this->url = url;
   this->client = client;
-  this->client.setInsecure(); // Disable SSL certificate verification
+  this->client.setCACert(root_ca_cert);
 }
 
 /**
@@ -24,44 +25,44 @@ PostmanAPI::PostmanAPI(const WiFiClientSecure &client, const String &url) {
 bool PostmanAPI::begin() {
   httpClient.begin(client, url);
   httpClient.setTimeout(10000);
-  responseCode = httpClient.GET();
 
+  responseCode = httpClient.GET();
   if (responseCode > 0) {
     String payload = httpClient.getString();
 
-    if (responseCode != HTTP_CODE_OK) {
-      int start = payload.indexOf("<pre>") + 5;
-      int end = payload.indexOf("</pre>");
-
-      JsonDocument doc;
-      DeserializationError deserializeError = deserializeJson(doc, payload);
-      if (start != -1 && end != -1 && end > start) {
-        response = payload.substring(start, end);
-      } else if (deserializeError == DeserializationError::Ok) {
-        response = doc["message"].as<String>();
-      } else {
-        response = payload;
-      }
-
-      Serial.print("Error on HTTP GET request: (");
-      Serial.print(responseCode);
-      Serial.print(") ");
-      Serial.println(response);
+    if (responseCode == HTTP_CODE_OK) {
+      Serial.println(payload);
       httpClient.end();
-      return false;
+      return true;
     }
 
-    Serial.println(payload);
+    int start = payload.indexOf("<pre>") + 5;
+    int end = payload.indexOf("</pre>");
+
+    JsonDocument doc;
+    DeserializationError deserializeError = deserializeJson(doc, payload);
+    if (start != -1 && end != -1 && end > start) {
+      response = payload.substring(start, end);
+    } else if (deserializeError == DeserializationError::Ok) {
+      response = doc["message"].as<String>();
+    } else {
+      response = payload;
+    }
+
+    Serial.print("Error on HTTP GET request: (");
+    Serial.print(responseCode);
+    Serial.print(") ");
+    Serial.println(response);
   } else {
     response = HTTPClient::errorToString(responseCode);
     Serial.print("Error on HTTP GET request: (");
     Serial.print(responseCode);
     Serial.print(") ");
     Serial.println(response);
-    return false;
   }
+
   httpClient.end();
-  return true;
+  return false;
 }
 
 /**
@@ -91,12 +92,12 @@ bool PostmanAPI::createData(String endpoint, JsonDocument jsonData) {
   String urlString = url + endpoint;
 
   httpClient.begin(client, urlString);
-  httpClient.addHeader("Content-Type", "application/json");
   httpClient.setTimeout(10000);
+  httpClient.addHeader("Content-Type", "application/json");
 
-  String serializeString;
-  serializeJson(jsonData, serializeString);
-  responseCode = httpClient.POST(serializeString);
+  String serializeData;
+  serializeJson(jsonData, serializeData);
+  responseCode = httpClient.POST(serializeData);
 
   if (responseCode > 0) {
     String payload = httpClient.getString();
@@ -163,8 +164,8 @@ bool PostmanAPI::updateData(String endpoint, String cardUID,
 
   httpClient.begin(client, urlString);
   httpClient.setTimeout(10000);
-  responseCode = httpClient.sendRequest("UPDATE");
 
+  responseCode = httpClient.sendRequest("UPDATE");
   if (responseCode > 0) {
     String payload = httpClient.getString();
 
@@ -289,8 +290,8 @@ PostmanAPI::readData(String endpoint, String cardUID,
 
   httpClient.begin(client, urlString);
   httpClient.setTimeout(10000);
-  responseCode = httpClient.GET();
 
+  responseCode = httpClient.GET();
   if (responseCode > 0) {
     String payload = httpClient.getString();
     JsonDocument doc;
@@ -333,7 +334,6 @@ PostmanAPI::readData(String endpoint, String cardUID,
         Serial.print("Deserialize Json failed: ");
         Serial.println(deserializeError.c_str());
 
-        doc.clear();
         httpClient.end();
         return data;
       }
@@ -375,7 +375,6 @@ PostmanAPI::readData(String endpoint, String cardUID,
         Serial.print("Deserialize Json failed: ");
         Serial.println(deserializeError.c_str());
 
-        doc.clear();
         httpClient.end();
         return data;
       }
@@ -436,59 +435,82 @@ dataExistence_t PostmanAPI::isDataExists(String endpoint, String *id,
       if (responseData != nullptr)
         *responseData = memberUID != nullptr ? *memberUID : *memberName;
       return DATA_EXISTS;
-    } else {
-      return DATA_NOT_FOUND;
     }
   } else if (endpoint.endsWith("event")) {
     httpClient.begin(client, urlString);
-    httpClient.setTimeout(20000);
+    httpClient.setTimeout(10000);
 
     responseCode = httpClient.GET();
-    if (responseCode == HTTP_CODE_OK) {
-      String payload = httpClient.getString();
+    if (responseCode > 0) {
+      if (responseCode == HTTP_CODE_OK) {
+        Stream *stream = httpClient.getStreamPtr();
 
-      JsonDocument doc, filter;
-      filter["data"][0]["logs"][0]["log"]["uid_kartu"] = true;
+        JsonDocument doc, filter;
+        filter["data"][0]["logs"][0]["log"]["uid_kartu"] = true;
 
-      DeserializationError deserializeError =
-          deserializeJson(doc, payload, DeserializationOption::Filter(filter));
+        DeserializationError deserializeError = deserializeJson(
+            doc, *stream, DeserializationOption::Filter(filter));
 
-      if (deserializeError) {
-        Serial.print("Deserialize Json failed: ");
-        Serial.println(deserializeError.c_str());
+        if (deserializeError) {
+          Serial.print("Deserialize Json failed: ");
+          Serial.println(deserializeError.c_str());
 
-        doc.clear();
-        httpClient.end();
-        return DATA_DESERIALIZE_ERROR;
-      }
+          httpClient.end();
+          return DATA_DESERIALIZE_ERROR;
+        }
 
-      JsonObject dataList = doc["data"][0];
-      JsonArray logsList = dataList["logs"];
+        JsonObject dataList = doc["data"][0];
+        JsonArray logsList = dataList["logs"];
 
-      if (id == nullptr && dataList.size() != 0) {
-        httpClient.end();
-        return DATA_EXISTS;
-      }
+        if (id == nullptr && dataList.size() != 0) {
+          httpClient.end();
+          return DATA_EXISTS;
+        }
 
-      if (id != nullptr) {
-        for (JsonObject log : logsList) {
-          String logCardUID = log["log"]["uid_kartu"].as<String>();
-          Serial.println(logCardUID);
-          if (logCardUID == *id) {
-            Serial.println("Data exists");
-            httpClient.end();
-            return DATA_EXISTS;
+        if (id != nullptr) {
+          for (JsonObject log : logsList) {
+            String logCardUID = log["log"]["uid_kartu"].as<String>();
+
+            if (logCardUID == *id) {
+              httpClient.end();
+              return DATA_EXISTS;
+            }
           }
         }
-      }
+      } else {
+        String payload = httpClient.getString();
 
-      httpClient.end();
-      return DATA_NOT_FOUND;
+        int start = payload.indexOf("<pre>") + 5;
+        int end = payload.indexOf("</pre>");
+
+        JsonDocument doc;
+        DeserializationError deserializeError = deserializeJson(doc, payload);
+        if (start != -1 && end != -1 && end > start) {
+          response = payload.substring(start, end);
+        } else if (!deserializeError) {
+          response = doc["message"].as<String>();
+        } else {
+          response = payload;
+        }
+
+        Serial.print("Error on HTTP GET request: (");
+        Serial.print(responseCode);
+        Serial.print(") ");
+        Serial.println(response);
+      }
+    } else {
+      response = HTTPClient::errorToString(responseCode);
+      Serial.print("Error on HTTP GET request: (");
+      Serial.print(responseCode);
+      Serial.print(") ");
+      Serial.println(response);
     }
+
+    httpClient.end();
   }
+  return DATA_NOT_FOUND;
 }
 
-// TODO: Fix out of ram issue when retrieving data from the API, maybe by optimizing the JSON parsing process or by implementing pagination for large datasets.
 /**
  * @brief Retrieves a member's UID by their card UID.
  * This method sends a GET request to the specified gateway
@@ -506,122 +528,69 @@ String *PostmanAPI::getMemberByUID(String endpoint, String cardUID) {
   httpClient.begin(client, urlString);
   httpClient.setTimeout(10000);
 
-  int httpCode = httpClient.GET();
-  if (httpCode == HTTP_CODE_OK) {
-    Stream *stream = httpClient.getStreamPtr();
-    JsonDocument filter;
-    filter["data"][0]["id"] = true;
-    filter["data"][0]["kartu"]["uid"] = true;
+  responseCode = httpClient.GET();
+  if (responseCode > 0) {
+    if (responseCode == HTTP_CODE_OK) {
+      Stream *stream = httpClient.getStreamPtr();
 
-    JsonDocument doc;
-    DeserializationError deserializeError =
-        deserializeJson(doc, *stream, DeserializationOption::Filter(filter));
+      JsonDocument doc, filter;
+      filter["data"][0]["id"] = true;
+      filter["data"][0]["kartu"]["uid"] = true;
 
-    if (deserializeError) {
-      Serial.print("Deserialize Json failed: ");
-      Serial.println(deserializeError.c_str());
+      DeserializationError deserializeError =
+          deserializeJson(doc, *stream, DeserializationOption::Filter(filter));
 
-      doc.clear();
-      httpClient.end();
-      return nullptr;
+      if (deserializeError) {
+        Serial.print("Deserialize Json failed: ");
+        Serial.println(deserializeError.c_str());
+
+        httpClient.end();
+        return nullptr;
+      }
+
+      JsonArray dataList = doc["data"];
+      for (JsonObject data : dataList) {
+        JsonObject cardData = data["kartu"];
+        String memberId = data["id"];
+        String memberCardUID = cardData["uid"];
+
+        if (memberCardUID != cardUID)
+          continue;
+
+        httpClient.end();
+        return new String(memberId);
+      }
+    } else {
+      String payload = httpClient.getString();
+
+      int start = payload.indexOf("<pre>") + 5;
+      int end = payload.indexOf("</pre>");
+
+      JsonDocument doc;
+      DeserializationError deserializeError = deserializeJson(doc, payload);
+      if (start != -1 && end != -1 && end > start) {
+        response = payload.substring(start, end);
+      } else if (!deserializeError) {
+        response = doc["message"].as<String>();
+      } else {
+        response = payload;
+      }
+
+      Serial.print("Error on HTTP GET request: (");
+      Serial.print(responseCode);
+      Serial.print(") ");
+      Serial.println(response);
     }
-
-    Serial.println(doc.as<String>());
-
-    JsonArray dataList = doc["data"];
-    for (JsonObject data : dataList) {
-      JsonObject cardData = data["kartu"];
-      String memberId = data["id"];
-      String memberCardUID = cardData["uid"];
-
-      if (memberCardUID != cardUID)
-        continue;
-
-      doc.clear();
-      httpClient.end();
-      return new String(memberId);
-    }
+  } else {
+    response = HTTPClient::errorToString(responseCode);
+    Serial.print("Error on HTTP GET request: (");
+    Serial.print(responseCode);
+    Serial.print(") ");
+    Serial.println(response);
   }
 
   httpClient.end();
   return nullptr;
-
-  // httpClient.begin(client, urlString);
-  // httpClient.setTimeout(30000);
-  // responseCode = httpClient.GET();
-
-  // if (responseCode > 0) {
-  //   String payload = httpClient.getString();
-  //   Serial.println(responseCode);
-  //   Serial.println(payload);
-  //   Serial.println(urlString);
-
-  //   JsonDocument doc, filter;
-  //   filter["data"][0]["id"] = true;
-  //   filter["data"][0]["kartu"]["uid"] = true;
-
-  //   if (responseCode != HTTP_CODE_OK) {
-  //     int start = payload.indexOf("<pre>") + 5;
-  //     int end = payload.indexOf("</pre>");
-
-  //     DeserializationError deserializeError =
-  //         deserializeJson(doc, payload,
-  //         DeserializationOption::Filter(filter));
-
-  //     if (start != -1 && end != -1 && end > start) {
-  //       response = payload.substring(start, end);
-  //     } else if (deserializeError == DeserializationError::Ok) {
-  //       response = doc["message"].as<String>();
-  //     } else {
-  //       response = payload;
-  //     }
-
-  //     Serial.print("Error on HTTP GET request: (");
-  //     Serial.print(responseCode);
-  //     Serial.print(") ");
-  //     Serial.println(response);
-  //     httpClient.end();
-  //     return nullptr;
-  //   }
-
-  //   DeserializationError deserializeError =
-  //       deserializeJson(doc, client, DeserializationOption::Filter(filter));
-
-  //   if (deserializeError) {
-  //     Serial.print("Deserialize Json failed: ");
-  //     Serial.println(deserializeError.c_str());
-
-  //     doc.clear();
-  //     httpClient.end();
-  //     return nullptr;
-  //   }
-
-  //   Serial.println(doc.as<String>());
-
-  //   JsonArray dataList = doc["data"];
-  //   for (JsonObject data : dataList) {
-  //     JsonObject cardData = data["kartu"];
-  //     String memberId = data["id"];
-  //     String memberCardUID = cardData["uid"];
-
-  //     if (memberCardUID != cardUID)
-  //       continue;
-
-  //     doc.clear();
-  //     httpClient.end();
-  //     return new String(memberId);
-  //   }
-  //   doc.clear();
-  // } else {
-  //   response = HTTPClient::errorToString(responseCode);
-  //   Serial.print("Error on HTTP GET request: (");
-  //   Serial.print(responseCode);
-  //   Serial.print(") ");
-  //   Serial.println(response);
-  // }
-
-  // httpClient.end();
-  // return nullptr;
 }
 
 /**
@@ -640,23 +609,50 @@ String *PostmanAPI::getMemberByName(String endpoint, String name) {
 
   httpClient.begin(client, urlString);
   httpClient.setTimeout(10000);
+
   responseCode = httpClient.GET();
-
   if (responseCode > 0) {
-    String payload = httpClient.getString();
+    if (responseCode == HTTP_CODE_OK) {
+      Stream *stream = httpClient.getStreamPtr();
 
-    JsonDocument doc, filter;
-    filter["data"][0]["nama"] = true;
-    filter["data"][0]["kartu"]["uid"] = true;
+      JsonDocument doc, filter;
+      filter["data"][0]["nama"] = true;
+      filter["data"][0]["kartu"]["uid"] = true;
 
-    if (responseCode != HTTP_CODE_OK) {
+      DeserializationError deserializeError =
+          deserializeJson(doc, *stream, DeserializationOption::Filter(filter));
+
+      if (deserializeError) {
+        Serial.print("Deserialize Json failed: ");
+        Serial.println(deserializeError.c_str());
+
+        httpClient.end();
+        return nullptr;
+      }
+
+      JsonArray dataList = doc["data"];
+      for (JsonObject data : dataList) {
+        String memberName = data["nama"];
+        JsonObject cardData = data["kartu"];
+        String memberCardUID = cardData["uid"];
+
+        if (memberName != name)
+          continue;
+
+        httpClient.end();
+        return new String(memberCardUID);
+      }
+    } else {
+      String payload = httpClient.getString();
+
       int start = payload.indexOf("<pre>") + 5;
       int end = payload.indexOf("</pre>");
 
+      JsonDocument doc;
       DeserializationError deserializeError = deserializeJson(doc, payload);
       if (start != -1 && end != -1 && end > start) {
         response = payload.substring(start, end);
-      } else if (deserializeError == DeserializationError::Ok) {
+      } else if (!deserializeError) {
         response = doc["message"].as<String>();
       } else {
         response = payload;
@@ -666,31 +662,6 @@ String *PostmanAPI::getMemberByName(String endpoint, String name) {
       Serial.print(responseCode);
       Serial.print(") ");
       Serial.println(response);
-      httpClient.end();
-      return nullptr;
-    }
-
-    DeserializationError deserializeError =
-        deserializeJson(doc, payload, DeserializationOption::Filter(filter));
-
-    if (deserializeError) {
-      Serial.print("Deserialize Json failed: ");
-      Serial.println(deserializeError.c_str());
-      httpClient.end();
-      return nullptr;
-    }
-
-    JsonArray dataList = doc["data"];
-    for (JsonObject data : dataList) {
-      String memberName = data["nama"];
-      JsonObject cardData = data["kartu"];
-      String memberCardUID = cardData["uid"];
-
-      if (memberName != name)
-        continue;
-
-      httpClient.end();
-      return new String(memberCardUID);
     }
   } else {
     response = HTTPClient::errorToString(responseCode);
