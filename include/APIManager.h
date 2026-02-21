@@ -38,7 +38,7 @@ class PostmanAPI {
   // This client is used for secure connections (HTTPS)
   WiFiClientSecure client;
 
-  String *getMemberByUID(String endpoint, String cardUID);
+  String *getMemberByUID(String endpoint, String uid);
   String *getMemberByName(String endpoint, String name);
 
   public:
@@ -53,13 +53,14 @@ class PostmanAPI {
   int getResponseCode() const;
 
   bool createData(String endpoint, JsonDocument jsonData);
-  HashMap<String, String> readData(String endpoint, String cardUID,
+  HashMap<String, String> readData(String endpoint, String uid,
                                    HashMap<String, String> columnData);
-  bool updateData(String endpoint, String cardUID,
+  bool updateData(String endpoint, String uid,
                   HashMap<String, String> columnData);
   bool deleteData(String endpoint, String key);
 
-  dataExistence_t isDataExists(String endpoint, String *id = nullptr,
+  String *getLastEventTitle(String endpoint);
+  dataExistence_t isDataExists(String endpoint, String *uid = nullptr,
                                String *responseData = nullptr);
 };
 
