@@ -147,16 +147,16 @@ bool PostmanAPI::createData(String endpoint, JsonDocument jsonData) {
  * and constructs the URL for the update request.
  *
  * @param endpoint The API endpoint for the specific gateway.
- * @param cardUID The unique identifier of the card to be updated.
+ * @param uid The unique identifier of the data to be updated.
  * @param columnData The data to be updated, organized by column names.
  *
  * @return True if the data was updated successfully, false otherwise.
  */
-bool PostmanAPI::updateData(String endpoint, String cardUID,
+bool PostmanAPI::updateData(String endpoint, String uid,
                             HashMap<String, String> columnData) {
   String urlString = url + endpoint;
 
-  String *memberUID = getMemberByUID(endpoint, cardUID);
+  String *memberUID = getMemberByUID(endpoint, uid);
   if (memberUID == nullptr)
     return false;
 
@@ -267,21 +267,21 @@ bool PostmanAPI::deleteData(String endpoint, String key) {
  * with that card. It processes the response and returns a
  * HashMap containing the relevant data.
  *
- * @param endpoint The API endpoint for the specific gateway.
- * @param cardUID The unique identifier of the card to read data for.
+ * @paramlv endpoint The API endpoint for the specific gateway.
+ * @param uid The unique identifier of the card to read data for.
  * @param columnData A HashMap containing column names and their corresponding
  *                   keys in the response data.
  *
  * @return A HashMap containing the retrieved data, organized by column names.
  */
 HashMap<String, String>
-PostmanAPI::readData(String endpoint, String cardUID,
+PostmanAPI::readData(String endpoint, String uid,
                      HashMap<String, String> columnData) {
   HashMap<String, String> data;
   String urlString = url + endpoint;
 
   if (endpoint.endsWith("mahasiswa")) {
-    String *memberUID = getMemberByUID(endpoint, cardUID);
+    String *memberUID = getMemberByUID(endpoint, uid);
     if (memberUID == nullptr)
       return data;
 
@@ -363,41 +363,7 @@ PostmanAPI::readData(String endpoint, String cardUID,
 
         data.put(columnName, columnValue);
       });
-    } else if (endpoint.endsWith("event")) {
-      JsonDocument filter;
-      filter["data"][0]["id"] = true;
-      filter["data"][0]["judul"] = true;
-
-      DeserializationError deserializeError =
-          deserializeJson(doc, payload, DeserializationOption::Filter(filter));
-
-      if (deserializeError) {
-        Serial.print("Deserialize Json failed: ");
-        Serial.println(deserializeError.c_str());
-
-        httpClient.end();
-        return data;
-      }
-
-      JsonObject objData = doc["data"][0];
-
-      columnData.foreach (
-          [&data, &objData](const String &key, const String &value) {
-            String columnName = value;
-            String columnValue;
-
-            String dataValue = objData[key].as<String>();
-
-            if (dataValue != "null") {
-              columnValue = dataValue;
-            }
-
-            data.put(columnName, columnValue);
-          });
     }
-
-    httpClient.end();
-    return data;
   } else {
     response = HTTPClient::errorToString(responseCode);
     Serial.print("Error on HTTP GET request: (");
@@ -411,25 +377,102 @@ PostmanAPI::readData(String endpoint, String cardUID,
 }
 
 /**
+ * @brief Retrieves the title of the last event from the Supabase database.
+ * This method sends a GET request to the specified gateway for events,
+ * processes the response, and returns the title of the last event if it exists.
+ * If there are no events or if an error occurs, it returns nullptr.
+ *
+ * @param endpoint The API endpoint for the specific gateway.
+ *
+ * @return A pointer to a String containing the title of the last event, or nullptr if not found.
+ */
+String *PostmanAPI::getLastEventTitle(String endpoint) {
+  String urlString = url + endpoint;
+
+  httpClient.begin(client, urlString);
+  httpClient.setTimeout(10000);
+
+  responseCode = httpClient.GET();
+  if (responseCode > 0) {
+    if (responseCode == HTTP_CODE_OK) {
+      Stream *stream = httpClient.getStreamPtr();
+
+      JsonDocument doc, filter;
+      filter["data"][0]["judul"] = true;
+
+      DeserializationError deserializeError =
+          deserializeJson(doc, *stream, DeserializationOption::Filter(filter));
+
+      if (deserializeError) {
+        Serial.print("Deserialize Json failed: ");
+        Serial.println(deserializeError.c_str());
+
+        httpClient.end();
+        return nullptr;
+      }
+
+      JsonObject eventData = doc["data"][0];
+      if (!eventData) {
+        httpClient.end();
+        return nullptr;
+      }
+      String eventTitle = eventData["judul"].as<String>();
+
+      httpClient.end();
+      return new String(eventTitle);
+    } else {
+      String payload = httpClient.getString();
+
+      int start = payload.indexOf("<pre>") + 5;
+      int end = payload.indexOf("</pre>");
+
+      JsonDocument doc;
+      DeserializationError deserializeError = deserializeJson(doc, payload);
+      if (start != -1 && end != -1 && end > start) {
+        response = payload.substring(start, end);
+      } else if (deserializeError == DeserializationError::Ok) {
+        response = doc["message"].as<String>();
+      } else {
+        response = payload;
+      }
+
+      Serial.print("Error on HTTP GET request: (");
+      Serial.print(responseCode);
+      Serial.print(") ");
+      Serial.println(response);
+    }
+  } else {
+    response = HTTPClient::errorToString(responseCode);
+    Serial.print("Error on HTTP GET request: (");
+    Serial.print(responseCode);
+    Serial.print(") ");
+    Serial.println(response);
+  }
+
+  httpClient.end();
+  return nullptr;
+}
+
+/**
  * @brief Checks if data exists in the Supabase database.
  * This method sends a GET request to the specified gateway
  * and checks if any data exists by examining the response.
  *
  * @param endpoint The API endpoint for the specific gateway.
- * @param id The ID of the data to check for existence.
+ * @param uid The ID of the data to check for existence.
  * @param responseData A pointer to a String where the response data will be 
  *                     stored if the data exists.
  *
  * @return A dataExistence_t value indicating whether the data exists, was not 
  *         found, or if there was a deserialization error.
  */
-dataExistence_t PostmanAPI::isDataExists(String endpoint, String *id,
+dataExistence_t PostmanAPI::isDataExists(String endpoint, String *uid,
                                          String *responseData) {
   String urlString = url + endpoint;
 
   if (endpoint.endsWith("mahasiswa")) {
-    String *memberUID = getMemberByUID(endpoint, *id);
-    String *memberName = getMemberByName(endpoint, *id);
+    String *memberUID = getMemberByUID(endpoint, *uid);
+    String *memberName = getMemberByName(endpoint, *uid);
 
     if (memberUID != nullptr || memberName != nullptr) {
       if (responseData != nullptr)
@@ -462,16 +505,16 @@ dataExistence_t PostmanAPI::isDataExists(String endpoint, String *id,
         JsonObject dataList = doc["data"][0];
         JsonArray logsList = dataList["logs"];
 
-        if (id == nullptr && dataList.size() != 0) {
+        if (uid == nullptr && dataList.size() != 0) {
           httpClient.end();
           return DATA_EXISTS;
         }
 
-        if (id != nullptr) {
+        if (uid != nullptr) {
           for (JsonObject log : logsList) {
             String logCardUID = log["log"]["uid_kartu"].as<String>();
 
-            if (logCardUID == *id) {
+            if (logCardUID == *uid) {
               httpClient.end();
               return DATA_EXISTS;
             }
@@ -517,12 +560,12 @@ dataExistence_t PostmanAPI::isDataExists(String endpoint, String *id,
  * and searches for the member associated with the provided card UID.
  *
  * @param endpoint The API endpoint for the specific gateway.
- * @param cardUID The unique identifier of the card to search for.
+ * @param uid The unique identifier of the card to search for.
  *
  * @return A pointer to a String containing the member ID if found, nullptr
  * otherwise.
  */
-String *PostmanAPI::getMemberByUID(String endpoint, String cardUID) {
+String *PostmanAPI::getMemberByUID(String endpoint, String uid) {
   String urlString = url + endpoint;
 
   httpClient.begin(client, urlString);
@@ -554,7 +597,7 @@ String *PostmanAPI::getMemberByUID(String endpoint, String cardUID) {
         String memberId = data["id"];
         String memberCardUID = cardData["uid"];
 
-        if (memberCardUID != cardUID)
+        if (memberCardUID != uid)
           continue;
 
         httpClient.end();
