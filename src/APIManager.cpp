@@ -278,28 +278,77 @@ HashMap<String, String>
 PostmanAPI::readData(String endpoint, String uid,
                      HashMap<String, String> columnData) {
   HashMap<String, String> data;
-  String urlString = url + endpoint;
-
-  if (endpoint.endsWith("mahasiswa")) {
-    String *memberUID = getMemberByUID(endpoint, uid);
-    if (memberUID == nullptr)
-      return data;
-
-    urlString = urlString + '/' + *memberUID;
-  }
+  String urlString = url + endpoint + '/' + uid;
 
   httpClient.begin(client, urlString);
   httpClient.setTimeout(10000);
 
   responseCode = httpClient.GET();
   if (responseCode > 0) {
-    String payload = httpClient.getString();
-    JsonDocument doc;
+    if (responseCode == HTTP_CODE_OK) {
+      Stream *stream = httpClient.getStreamPtr();
+      JsonDocument doc, filter;
 
-    if (responseCode != HTTP_CODE_OK) {
+      columnData.foreach ([&filter](const String &key, const String &value) {
+        filter["data"][key] = true;
+        filter["data"]["kartu"][key] = true;
+      });
+
+      DeserializationError deserializeError =
+          deserializeJson(doc, *stream, DeserializationOption::Filter(filter));
+
+      if (deserializeError) {
+        Serial.print("Deserialize Json failed: ");
+        Serial.println(deserializeError.c_str());
+
+        httpClient.end();
+        return data;
+      }
+
+      if (endpoint.endsWith("mahasiswa")) {
+        JsonObject objData = doc["data"];
+        JsonObject objCard = objData["kartu"];
+
+        columnData.foreach ([&data, &objData, &objCard](const String &key,
+                                                        const String &value) {
+          String columnName = value;
+          String columnValue;
+
+          String dataValue = objData[key].as<String>();
+          String cardValue = objCard[key].as<String>();
+
+          if (dataValue != "null") {
+            columnValue = dataValue;
+          } else if (cardValue != "null") {
+            columnValue = cardValue;
+          }
+
+          data.put(columnName, columnValue);
+        });
+      } else if (endpoint.endsWith("event")) {
+        JsonObject objData = doc["data"];
+
+        columnData.foreach (
+            [&data, &objData](const String &key, const String &value) {
+              String columnName = value;
+              String columnValue;
+
+              String dataValue = objData[key].as<String>();
+
+              if (dataValue != "null") {
+                columnValue = dataValue;
+              }
+
+              data.put(columnName, columnValue);
+            });
+      }
+    } else {
+      String payload = httpClient.getString();
+
       int start = payload.indexOf("<pre>") + 5;
       int end = payload.indexOf("</pre>");
 
+      JsonDocument doc;
       DeserializationError deserializeError = deserializeJson(doc, payload);
       if (start != -1 && end != -1 && end > start) {
         response = payload.substring(start, end);
@@ -313,56 +362,6 @@ PostmanAPI::readData(String endpoint, String uid,
       Serial.print(responseCode);
       Serial.print(") ");
       Serial.println(response);
-      httpClient.end();
-      return data;
-    }
-
-    if (endpoint.endsWith("mahasiswa")) {
-      JsonDocument filter;
-      filter["data"]["id"] = true;
-      filter["data"]["nim"] = true;
-      filter["data"]["nama"] = true;
-      filter["data"]["divisi"] = true;
-      filter["data"]["kartu"]["uid"] = true;
-      filter["data"]["kartu"]["logs"][0]["tanggal_masuk"] = true;
-      filter["data"]["kartu"]["logs"][0]["events"][0]["eventId"] = true;
-
-      DeserializationError deserializeError =
-          deserializeJson(doc, payload, DeserializationOption::Filter(filter));
-
-      if (deserializeError) {
-        Serial.print("Deserialize Json failed: ");
-        Serial.println(deserializeError.c_str());
-
-        httpClient.end();
-        return data;
-      }
-
-      JsonObject objData = doc["data"];
-      JsonObject objCard = objData["kartu"];
-      JsonArray objLogs = objCard["logs"];
-
-      columnData.foreach ([&data, &objData, &objCard,
-                           &objLogs](const String &key, const String &value) {
-        String columnName = value;
-        String columnValue;
-
-        String dataValue = objData[key].as<String>();
-        String cardValue = objCard[key].as<String>();
-        String logValue = objLogs.size() > 0
-                              ? objLogs[objLogs.size() - 1][key].as<String>()
-                              : "null";
-
-        if (dataValue != "null") {
-          columnValue = dataValue;
-        } else if (cardValue != "null") {
-          columnValue = cardValue;
-        } else if (logValue != "null") {
-          columnValue = logValue;
-        }
-
-        data.put(columnName, columnValue);
-      });
     }
   } else {
     response = HTTPClient::errorToString(responseCode);
