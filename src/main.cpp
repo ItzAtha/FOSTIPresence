@@ -152,17 +152,17 @@ void loadSettings() {
   // Read current event from Preferences Database
   // If the key doesn't exist, read from PostmanAPI Database
   // Otherwise, read the value from the Preferences database
-  HashMap<String, String> eventsColumn;
-  eventsColumn.put("judul", "current_event_name");
-  HashMap<String, String> eventsData =
-      api.readData("/api/event", "", eventsColumn);
+  // HashMap<String, String> eventsColumn;
+  // eventsColumn.put("judul", "current_event_name");
+  // HashMap<String, String> eventsData =
+  //     api.readData("/api/event", "", eventsColumn);
 
-  if (pref.getString("event_name", "").equals("")) {
-    pref.putString("event_name", eventsData.get("current_event_name"));
-    currentEvent = eventsData.get("current_event_name");
-  } else {
-    currentEvent = pref.getString("event_name");
-  }
+  // if (pref.getString("event_name", "").equals("")) {
+  //   pref.putString("event_name", eventsData.get("current_event_name"));
+  //   currentEvent = eventsData.get("current_event_name");
+  // } else {
+  //   currentEvent = pref.getString("event_name");
+  // }
 }
 
 /**
@@ -364,29 +364,41 @@ void setup() {
       ; // Don't proceed, loop forever
   }
   delay(1500);
+  Serial.println("Debug 1");
   display.fillScreen(TFT_BLACK);
   vTaskDelete(taskLoadingHandler);
+  Serial.println("Debug 2");
 
   // Start the tasks for each system
   xTaskCreate(TaskMain, "Main Menu", 8192, NULL, 1, &taskMainHandler);
+  Serial.println("Debug 3");
   xTaskCreatePinnedToCore(TaskRegister, "Register Data", 8192, NULL, 1,
                           &taskRegisterHandler, 1);
+  Serial.println("Debug 4");
   xTaskCreate(TaskAttendance, "Member Attendance", 8192, NULL, 1,
               &taskAttendanceHandler);
 
+  Serial.println("Debug 5");
   xTaskCreate(TaskCheckConnection, "Check Connection", 8192, NULL, 2,
               &taskCheckConnectionHandler);
 
+  Serial.println("Debug 6");
   vTaskSuspend(taskRegisterHandler);   // Suspend the register task
+  Serial.println("Debug 7");
   vTaskSuspend(taskAttendanceHandler); // Suspend the attendance task
+  Serial.println("Debug 8");
 
   // Initialize NTP Client
   ntpClient.begin();
+  Serial.println("Debug 9");
   ntpClient.forceUpdate();
+  Serial.println("Debug 10");
   MAX_WIFI_RETRIES = 32;
 
   loadSettings();           // Load settings from Preferences Database
+  Serial.println("Debug 11");
   Serial.setTimeout(1000L); // Reset timeout for serial input
+  Serial.println("Debug 12");
 }
 
 /**
@@ -818,20 +830,15 @@ void memberAttendance(String UID, PresenceOption option) {
     String formattedCurrDate = ntpClient.getFormattedDate();
     String currentDate = splitString(formattedCurrDate, 'T').get(0);
 
-    HashMap<String, String> eventsColumn;
-    eventsColumn.put("judul", "event_name");
-    HashMap<String, String> eventsData =
-        api.readData("/api/event", "", eventsColumn);
-
-    String eventName = eventsData.getOrDefault("event_name", "");
+    String *eventName = api.getLastEventTitle("/api/event");
 
     // Check if member has already attended on the event
     if (api.isDataExists("/api/event", &UID) == DATA_EXISTS) {
       Serial.printf("Member with UID %s has already attended on event %s!\n",
-                    UID, eventName.c_str());
+                    UID, eventName->c_str());
       TransmitterPort.printf(
           "Member with UID %s has already attended on event %s!</nl></nl>\n",
-          UID, eventName.c_str());
+          UID, eventName->c_str());
 
       display.setTextColor(TFT_BLACK);
       display.setCursor((display.width() - 180) / 2,
