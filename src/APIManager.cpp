@@ -259,7 +259,7 @@ bool PostmanAPI::deleteData(String endpoint, String key) {
   httpClient.end();
   return true;
 }
-// TODO: Add custom filters in method parameter to optimize the data retrieval process.
+
 /**
  * @brief Reads data from the Supabase database.
  * This method sends a GET request to the specified gateway
