@@ -383,7 +383,7 @@ void setup() {
               &taskCheckConnectionHandler);
 
   Serial.println("Debug 6");
-  vTaskSuspend(taskRegisterHandler);   // Suspend the register task
+  vTaskSuspend(taskRegisterHandler); // Suspend the register task
   Serial.println("Debug 7");
   vTaskSuspend(taskAttendanceHandler); // Suspend the attendance task
   Serial.println("Debug 8");
@@ -395,7 +395,7 @@ void setup() {
   Serial.println("Debug 10");
   MAX_WIFI_RETRIES = 32;
 
-  loadSettings();           // Load settings from Preferences Database
+  loadSettings(); // Load settings from Preferences Database
   Serial.println("Debug 11");
   Serial.setTimeout(1000L); // Reset timeout for serial input
   Serial.println("Debug 12");
@@ -700,6 +700,7 @@ void showMemberData(String UID, bool showOnLED = true) {
   column.put("nama", "Member Name");
   if (showDivision)
     column.put("divisi", "Member Division");
+
   HashMap<String, String> memberData =
       api.readData("/api/mahasiswa", UID, column);
 
@@ -796,8 +797,10 @@ void memberAttendance(String UID, PresenceOption option) {
   TransmitterPort.println("Fetching member UID to database...");
   delay(500);
 
+  String memberID;
+
   // Check if member exists in PostmanAPI database
-  if (api.isDataExists("/api/mahasiswa", &UID) != DATA_EXISTS) {
+  if (api.isDataExists("/api/mahasiswa", &UID, &memberID) != DATA_EXISTS) {
     Serial.printf("Member with UID %s isn't exists in member table!\n", UID);
     TransmitterPort.printf(
         "Member with UID %s isn't exists in member table!</nl></nl>\n", UID);
@@ -819,7 +822,7 @@ void memberAttendance(String UID, PresenceOption option) {
   HashMap<String, String> optionColumn;
   optionColumn.put("divisi", "presence_mode");
   HashMap<String, String> logsData =
-      api.readData("/api/mahasiswa", UID, optionColumn);
+      api.readData("/api/mahasiswa", memberID, optionColumn);
 
   String presenceMode = optionColumn.get("presence_mode");
   if (presenceMode.equalsIgnoreCase("BPHI")) {
@@ -882,7 +885,7 @@ void memberAttendance(String UID, PresenceOption option) {
       display.print("Success Log In!");
       delay(500);
 
-      showMemberData(UID);
+      showMemberData(memberID);
     } else {
       Serial.println("Failed to write data to PostmanAPI Server!");
       TransmitterPort.println(
