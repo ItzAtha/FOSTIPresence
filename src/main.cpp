@@ -1028,79 +1028,24 @@ void manualAttendance() {
     Serial.println();
     return;
   }
-  Serial.println("Member name is exists in member table!");
-  Serial.println("Member Card UID : " + memberCardUID);
-  return;
 
   if (ntpClient.forceUpdate()) {
     String formattedCurrDate = ntpClient.getFormattedDate();
     String currentDate = splitString(formattedCurrDate, 'T').get(0);
 
-    HashMap<String, String> logsColumn;
-    logsColumn.put("tanggal_masuk", "last_login");
-    HashMap<String, String> logsData =
-        api.readData("/api/mahasiswa", memberCardUID, logsColumn);
+    String *eventName = api.getLastEventTitle("/api/event");
 
-    bool isLoggedIn = logsData.get("last_login") != nullptr;
+    // Check if member has already attended on the event
+    if (api.isDataExists("/api/event", &memberCardUID) == DATA_EXISTS) {
+      Serial.printf("Member with UID %s has already attended on event %s!\n",
+                    memberCardUID, eventName->c_str());
+      TransmitterPort.printf(
+          "Member with UID %s has already attended on event %s!</nl></nl>\n",
+          memberCardUID, eventName->c_str());
 
-    HashMap<String, String> eventsColumn;
-    eventsColumn.put("judul", "event_name");
-    HashMap<String, String> eventsData =
-        api.readData("/api/event", "", eventsColumn);
-    String eventName = eventsData.get("event_name");
-
-    // Check if member has already logged in for the current event today
-    if (isLoggedIn && eventName.equals(currentEvent)) {
-      String logInDateTime = logsData.get("last_login");
-      String logInDate = splitString(logInDateTime, 'T').get(0);
-
-      // Check if member has already attended today
-      if (logInDate.equals(currentDate)) {
-        Serial.printf("Member with UID %s has already attended today!\n",
-                      memberCardUID);
-        TransmitterPort.printf(
-            "Member with UID %s has already attended today!</nl></nl>\n",
-            memberCardUID);
-
-        display.setTextColor(TFT_BLACK);
-        display.setCursor((display.width() - 180) / 2,
-                          (display.height() + 130) / 2);
-        display.print("ID Card Detected!");
-        display.setTextColor(TFT_WHITE);
-        display.setCursor((display.width() - 150) / 2,
-                          (display.height() + 130) / 2);
-        display.print("Already Log In!");
-
-        delay(1500);
-        Serial.println();
-        return;
-      } else if (!logInDate.equals(currentDate) &&
-                 eventName.equals(currentEvent)) {
-        Serial.printf("Member with UID %s has already attended on event %s!\n",
-                      memberCardUID, eventName.c_str());
-        TransmitterPort.printf(
-            "Member with UID %s has already attended on event %s!</nl></nl>\n",
-            memberCardUID, eventName.c_str());
-
-        display.setTextColor(TFT_BLACK);
-        display.setCursor((display.width() - 180) / 2,
-                          (display.height() + 130) / 2);
-        display.print("ID Card Detected!");
-        display.setTextColor(TFT_WHITE);
-        display.setCursor((display.width() - 150) / 2,
-                          (display.height() + 130) / 2);
-        display.print("Already Log In!");
-
-        delay(1500);
-        Serial.println();
-        return;
-      }
-    }
-
-    // Update current event name in preferences if changed
-    if (!eventName.equals(currentEvent)) {
-      pref.putString("event_name", eventName);
-      currentEvent = pref.getString("event_name");
+      delay(1500);
+      Serial.println();
+      return;
     }
 
     bool success = api.createData("/api/log/izin", memberData.toJson());
