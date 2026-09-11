@@ -1,730 +1,328 @@
-#include <APIManager.h>
+#include <DatabaseManager.h>
 #include <credentials.h>
 
-/**
- * @brief Constructor for the PostmanAPI class.
- * This constructor initializes the PostmanAPI instance with a WiFiClientSecure
- * instance for secure connections and a base URL for the Postman API.
- * It sets the URL and configures the client to disable SSL certificate
- * verification for development purposes.
- *
- * @param client WiFiClientSecure instance for secure connections.
- * @param url Base URL for the Postman API.
- */
-PostmanAPI::PostmanAPI(const WiFiClientSecure &client, const String &url) {
-  this->url = url;
-  this->client = client;
-  this->client.setCACert(root_ca_cert);
-}
+DatabaseManager::DatabaseManager(TinyGsm &modem, const String &url)
+    : url(url), modem(modem) {}
 
-/**
- * @brief Initializes the HTTP client for making requests.
- * This method sets up the HTTP client with the specified URL,
- * sends a GET request to the API, and processes the response.
- */
-bool PostmanAPI::begin() {
-  httpClient.begin(client, url);
-  httpClient.setTimeout(10000);
+bool DatabaseManager::begin(char *apn, ServerSSLVersion sslVersion,
+                            uint32_t timeout) {
+    Serial.println("Waiting for modem boot...");
+    delay(1000);
 
-  responseCode = httpClient.GET();
-  if (responseCode > 0) {
-    String payload = httpClient.getString();
-
-    if (responseCode == HTTP_CODE_OK) {
-      Serial.println(payload);
-      httpClient.end();
-      return true;
-    }
-
-    int start = payload.indexOf("<pre>") + 5;
-    int end = payload.indexOf("</pre>");
-
-    JsonDocument doc;
-    DeserializationError deserializeError = deserializeJson(doc, payload);
-    if (start != -1 && end != -1 && end > start) {
-      response = payload.substring(start, end);
-    } else if (deserializeError == DeserializationError::Ok) {
-      response = doc["message"].as<String>();
-    } else {
-      response = payload;
-    }
-
-    Serial.print("Error on HTTP GET request: (");
-    Serial.print(responseCode);
-    Serial.print(") ");
-    Serial.println(response);
-  } else {
-    response = HTTPClient::errorToString(responseCode);
-    Serial.print("Error on HTTP GET request: (");
-    Serial.print(responseCode);
-    Serial.print(") ");
-    Serial.println(response);
-  }
-
-  httpClient.end();
-  return false;
-}
-
-/**
- * @brief Ends the HTTP client and disconnects from the Postman API server.
- * This method cleans up the HTTP client and WiFi client resources,
- * ensuring a proper disconnection from the Postman API server.
- */
-void PostmanAPI::end() {
-  Serial.println("Disconnected from PostmanAPI Server...");
-
-  httpClient.end();
-  client.stop();
-  client.flush();
-}
-
-/**
- * @brief Creates new data in the Supabase database.
- * This method sends a POST request to the specified gateway
- * with the provided JSON data in the request body.
- *
- * @param endpoint The API endpoint for the specific gateway.
- * @param jsonData The JSON data to be sent in the request body.
- *
- * @return True if the data was created successfully, false otherwise.
- */
-bool PostmanAPI::createData(String endpoint, JsonDocument jsonData) {
-  String urlString = url + endpoint;
-
-  httpClient.begin(client, urlString);
-  httpClient.setTimeout(10000);
-  httpClient.addHeader("Content-Type", "application/json");
-
-  String serializeData;
-  serializeJson(jsonData, serializeData);
-  responseCode = httpClient.POST(serializeData);
-
-  if (responseCode > 0) {
-    String payload = httpClient.getString();
-
-    if (responseCode != HTTP_CODE_CREATED) {
-      if (responseCode != HTTP_CODE_OK) {
-        int start = payload.indexOf("<pre>") + 5;
-        int end = payload.indexOf("</pre>");
-
-        JsonDocument doc;
-        DeserializationError deserializeError = deserializeJson(doc, payload);
-        if (start != -1 && end != -1 && end > start) {
-          response = payload.substring(start, end);
-        } else if (deserializeError == DeserializationError::Ok) {
-          response = doc["message"].as<String>();
-        } else {
-          response = payload;
-        }
-
-        Serial.print("Error on HTTP GET request: (");
-        Serial.print(responseCode);
-        Serial.print(") ");
-        Serial.println(response);
-        httpClient.end();
+    if (!waitForModem(timeout)) {
+        Serial.println("Modem initialization failed.");
         return false;
-      }
     }
-  } else {
-    response = HTTPClient::errorToString(responseCode);
-    Serial.print("Error on HTTP GET request: (");
-    Serial.print(responseCode);
-    Serial.print(") ");
-    Serial.println(response);
-    httpClient.end();
-    return false;
-  }
 
-  httpClient.end();
-  return true;
+    Serial.println();
+    Serial.println("Initializing modem...");
+
+    if (!modem.init()) {
+        Serial.println("ERROR: modem.init() failed.");
+        return false;
+    }
+
+    Serial.println("Modem initialized.");
+
+    Serial.print("Modem: ");
+    Serial.println(modem.getModemName());
+
+    Serial.println();
+    Serial.println("Checking SIM...");
+
+    SimStatus simStatus = modem.getSimStatus();
+    if (simStatus != SIM_READY) {
+        Serial.print("SIM is not ready. Status: ");
+        Serial.println((int)simStatus);
+        return false;
+    }
+
+    Serial.println("SIM ready.");
+
+    Serial.println();
+    Serial.println("Waiting for cellular network...");
+
+    if (!modem.waitForNetwork(120000L)) {
+        Serial.println("ERROR: Network registration failed.");
+        return false;
+    }
+
+    Serial.println("Network registered.");
+
+    int signal = modem.getSignalQuality();
+    Serial.print("Signal quality: ");
+    Serial.println(signal);
+
+    Serial.println();
+    Serial.println("Connecting to cellular data...");
+
+    if (!modem.gprsConnect(apn)) {
+        Serial.println("ERROR: GPRS connection failed.");
+        return false;
+    }
+
+    Serial.println("Cellular data connected.");
+
+    Serial.print("IP address: ");
+    Serial.println(modem.localIP());
+
+    this->sslVersion = sslVersion;
+    Serial.println("Modem configured successfully.");
+    return true;
 }
 
-/**
- * @brief Updates existing data in the Supabase database.
- * This method sends an UPDATE request to the specified gateway
- * with the provided card UID and column data to be updated.
- * It retrieves the member UID associated with the card UID
- * and constructs the URL for the update request.
- *
- * @param endpoint The API endpoint for the specific gateway.
- * @param uid The unique identifier of the data to be updated.
- * @param columnData The data to be updated, organized by column names.
- *
- * @return True if the data was updated successfully, false otherwise.
- */
-bool PostmanAPI::updateData(String endpoint, String uid,
-                            HashMap<String, String> columnData) {
-  String urlString = url + endpoint;
+bool DatabaseManager::end() {
+    Serial.println("Ending HTTPS session...");
 
-  String *memberUID = getMemberByUID(endpoint, uid);
-  if (memberUID == nullptr)
-    return false;
+    modem.https_end();
 
-  urlString = urlString + '/' + *memberUID;
+    Serial.println("HTTPS session ended.");
+    Serial.println("Disconnecting from cellular data...");
 
-  httpClient.begin(client, urlString);
-  httpClient.setTimeout(10000);
-
-  responseCode = httpClient.sendRequest("UPDATE");
-  if (responseCode > 0) {
-    String payload = httpClient.getString();
-
-    if (responseCode != HTTP_CODE_OK) {
-      int start = payload.indexOf("<pre>") + 5;
-      int end = payload.indexOf("</pre>");
-
-      JsonDocument doc;
-      DeserializationError deserializeError = deserializeJson(doc, payload);
-      if (start != -1 && end != -1 && end > start) {
-        response = payload.substring(start, end);
-      } else if (deserializeError == DeserializationError::Ok) {
-        response = doc["message"].as<String>();
-      } else {
-        response = payload;
-      }
-
-      Serial.print("Error on HTTP GET request: (");
-      Serial.print(responseCode);
-      Serial.print(") ");
-      Serial.println(response);
-      httpClient.end();
-      return false;
+    if (!modem.gprsDisconnect()) {
+        Serial.println("ERROR: Failed to disconnect from GPRS.");
+        return false;
     }
 
-  } else {
-    response = HTTPClient::errorToString(responseCode);
-    Serial.print("Error on HTTP GET request: (");
-    Serial.print(responseCode);
-    Serial.print(") ");
-    Serial.println(response);
-    httpClient.end();
-    return false;
-  }
-
-  httpClient.end();
-  return true;
+    Serial.println("Cellular data disconnected.");
+    return true;
 }
 
-/**
- * @brief Deletes data from the Supabase database.
- * This method sends a DELETE request to the specified gateway
- * with the provided key to identify the data to be deleted.
- *
- * @param endpoint The API endpoint for the specific gateway.
- * @param key The unique identifier of the data to be deleted.
- *
- * @return True if the data was deleted successfully, false otherwise.
- */
-bool PostmanAPI::deleteData(String endpoint, String key) {
-  String urlString = url + endpoint + '/' + key;
+bool DatabaseManager::createData(String endpoint, JsonDocument jsonData) {
+    String urlString = url + endpoint;
 
-  httpClient.begin(client, urlString);
-  httpClient.setTimeout(10000);
-  responseCode = httpClient.sendRequest("DELETE");
-
-  if (responseCode > 0) {
-    String payload = httpClient.getString();
-
-    if (responseCode != HTTP_CODE_OK) {
-      int start = payload.indexOf("<pre>") + 5;
-      int end = payload.indexOf("</pre>");
-
-      JsonDocument doc;
-      DeserializationError deserializeError = deserializeJson(doc, payload);
-      if (start != -1 && end != -1 && end > start) {
-        response = payload.substring(start, end);
-      } else if (deserializeError == DeserializationError::Ok) {
-        response = doc["message"].as<String>();
-      } else {
-        response = payload;
-      }
-
-      Serial.print("Error on HTTP GET request: (");
-      Serial.print(responseCode);
-      Serial.print(") ");
-      Serial.println(response);
-      httpClient.end();
-      return false;
+    if (!modem.https_begin()) {
+        Serial.println("ERROR: HTTPS initialization failed.");
+        return false;
     }
-  } else {
-    response = HTTPClient::errorToString(responseCode);
-    Serial.print("Error on HTTP GET request: (");
-    Serial.print(responseCode);
-    Serial.print(") ");
-    Serial.println(response);
-    httpClient.end();
-    return false;
-  }
 
-  httpClient.end();
-  return true;
-}
-
-/**
- * @brief Reads data from the Supabase database.
- * This method sends a GET request to the specified gateway
- * with the provided card UID and retrieves the data associated
- * with that card. It processes the response and returns a
- * HashMap containing the relevant data.
- *
- * @paramlv endpoint The API endpoint for the specific gateway.
- * @param uid The unique identifier of the card to read data for.
- * @param columnData A HashMap containing column names and their corresponding
- *                   keys in the response data.
- *
- * @return A HashMap containing the retrieved data, organized by column names.
- */
-HashMap<String, String>
-PostmanAPI::readData(String endpoint, String uid,
-                     HashMap<String, String> columnData) {
-  HashMap<String, String> data;
-  String urlString = url + endpoint + '/' + uid;
-
-  httpClient.begin(client, urlString);
-  httpClient.setTimeout(10000);
-
-  responseCode = httpClient.GET();
-  if (responseCode > 0) {
-    if (responseCode == HTTP_CODE_OK) {
-      Stream *stream = httpClient.getStreamPtr();
-      JsonDocument doc, filter;
-
-      columnData.foreach ([&filter](const String &key, const String &value) {
-        filter["data"][key] = true;
-        filter["data"]["kartu"][key] = true;
-      });
-
-      DeserializationError deserializeError =
-          deserializeJson(doc, *stream, DeserializationOption::Filter(filter));
-
-      if (deserializeError) {
-        Serial.print("Deserialize Json failed: ");
-        Serial.println(deserializeError.c_str());
-
-        httpClient.end();
-        return data;
-      }
-
-      if (endpoint.endsWith("mahasiswa")) {
-        JsonObject objData = doc["data"];
-        JsonObject objCard = objData["kartu"];
-
-        columnData.foreach ([&data, &objData, &objCard](const String &key,
-                                                        const String &value) {
-          String columnName = value;
-          String columnValue;
-
-          String dataValue = objData[key].as<String>();
-          String cardValue = objCard[key].as<String>();
-
-          if (dataValue != "null") {
-            columnValue = dataValue;
-          } else if (cardValue != "null") {
-            columnValue = cardValue;
-          }
-
-          data.put(columnName, columnValue);
-        });
-      } else if (endpoint.endsWith("event")) {
-        JsonObject objData = doc["data"];
-
-        columnData.foreach (
-            [&data, &objData](const String &key, const String &value) {
-              String columnName = value;
-              String columnValue;
-
-              String dataValue = objData[key].as<String>();
-
-              if (dataValue != "null") {
-                columnValue = dataValue;
-              }
-
-              data.put(columnName, columnValue);
-            });
-      }
-    } else {
-      String payload = httpClient.getString();
-
-      int start = payload.indexOf("<pre>") + 5;
-      int end = payload.indexOf("</pre>");
-
-      JsonDocument doc;
-      DeserializationError deserializeError = deserializeJson(doc, payload);
-      if (start != -1 && end != -1 && end > start) {
-        response = payload.substring(start, end);
-      } else if (deserializeError == DeserializationError::Ok) {
-        response = doc["message"].as<String>();
-      } else {
-        response = payload;
-      }
-
-      Serial.print("Error on HTTP GET request: (");
-      Serial.print(responseCode);
-      Serial.print(") ");
-      Serial.println(response);
+    if (!modem.https_set_url(String(urlString), sslVersion, true)) {
+        Serial.println("ERROR: Failed to configure HTTPS URL.");
+        modem.https_end();
+        return false;
     }
-  } else {
-    response = HTTPClient::errorToString(responseCode);
-    Serial.print("Error on HTTP GET request: (");
-    Serial.print(responseCode);
-    Serial.print(") ");
-    Serial.println(response);
-  }
 
-  httpClient.end();
-  return data;
-}
+    modem.https_set_timeout(120, 30, 30);
 
-/**
- * @brief Retrieves the title of the last event from the Supabase database.
- * This method sends a GET request to the specified gateway for events,
- * processes the response, and returns the title of the last event if it exists.
- * If there are no events or if an error occurs, it returns nullptr.
- *
- * @param endpoint The API endpoint for the specific gateway.
- *
- * @return A pointer to a String containing the title of the last event, or nullptr if not found.
- */
-String *PostmanAPI::getLastEventTitle(String endpoint) {
-  String urlString = url + endpoint;
+    String jsonPayload;
+    serializeJson(jsonData, jsonPayload);
 
-  httpClient.begin(client, urlString);
-  httpClient.setTimeout(10000);
-
-  responseCode = httpClient.GET();
-  if (responseCode > 0) {
-    if (responseCode == HTTP_CODE_OK) {
-      Stream *stream = httpClient.getStreamPtr();
-
-      JsonDocument doc, filter;
-      filter["data"][0]["judul"] = true;
-
-      DeserializationError deserializeError =
-          deserializeJson(doc, *stream, DeserializationOption::Filter(filter));
-
-      if (deserializeError) {
-        Serial.print("Deserialize Json failed: ");
-        Serial.println(deserializeError.c_str());
-
-        httpClient.end();
-        return nullptr;
-      }
-
-      JsonObject eventData = doc["data"][0];
-      if (!eventData) {
-        httpClient.end();
-        return nullptr;
-      }
-      String eventTitle = eventData["judul"].as<String>();
-
-      httpClient.end();
-      return new String(eventTitle);
-    } else {
-      String payload = httpClient.getString();
-
-      int start = payload.indexOf("<pre>") + 5;
-      int end = payload.indexOf("</pre>");
-
-      JsonDocument doc;
-      DeserializationError deserializeError = deserializeJson(doc, payload);
-      if (start != -1 && end != -1 && end > start) {
-        response = payload.substring(start, end);
-      } else if (deserializeError == DeserializationError::Ok) {
-        response = doc["message"].as<String>();
-      } else {
-        response = payload;
-      }
-
-      Serial.print("Error on HTTP GET request: (");
-      Serial.print(responseCode);
-      Serial.print(") ");
-      Serial.println(response);
-    }
-  } else {
-    response = HTTPClient::errorToString(responseCode);
-    Serial.print("Error on HTTP GET request: (");
-    Serial.print(responseCode);
-    Serial.print(") ");
-    Serial.println(response);
-  }
-
-  httpClient.end();
-  return nullptr;
-}
-
-/**
- * @brief Checks if data exists in the Supabase database.
- * This method sends a GET request to the specified gateway
- * and checks if any data exists by examining the response.
- *
- * @param endpoint The API endpoint for the specific gateway.
- * @param uid The ID of the data to check for existence.
- * @param responseData A pointer to a String where the response data will be 
- *                     stored if the data exists.
- *
- * @return A dataExistence_t value indicating whether the data exists, was not 
- *         found, or if there was a deserialization error.
- */
-dataExistence_t PostmanAPI::isDataExists(String endpoint, String *uid,
-                                         String *responseData) {
-  String urlString = url + endpoint;
-
-  if (endpoint.endsWith("mahasiswa")) {
-    String *memberUID = getMemberByUID(endpoint, *uid);
-    String *memberName = getMemberByName(endpoint, *uid);
-
-    if (memberUID != nullptr || memberName != nullptr) {
-      if (responseData != nullptr)
-        *responseData = memberUID != nullptr ? *memberUID : *memberName;
-      return DATA_EXISTS;
-    }
-  } else if (endpoint.endsWith("event")) {
-    httpClient.begin(client, urlString);
-    httpClient.setTimeout(10000);
-
-    responseCode = httpClient.GET();
+    responseCode = modem.https_post_json_format(jsonPayload);
     if (responseCode > 0) {
-      if (responseCode == HTTP_CODE_OK) {
-        Stream *stream = httpClient.getStreamPtr();
+        response = modem.https_body();
 
-        JsonDocument doc, filter;
-        filter["data"][0]["logs"][0]["log"]["uid_kartu"] = true;
-
-        DeserializationError deserializeError = deserializeJson(
-            doc, *stream, DeserializationOption::Filter(filter));
-
-        if (deserializeError) {
-          Serial.print("Deserialize Json failed: ");
-          Serial.println(deserializeError.c_str());
-
-          httpClient.end();
-          return DATA_DESERIALIZE_ERROR;
+        if (responseCode != HTTP_CREATED && responseCode != HTTP_OK) {
+            Serial.print("Error on HTTP POST request: (");
+            Serial.print(responseCode);
+            Serial.print(") ");
+            Serial.println(response);
+            modem.https_end();
+            return false;
         }
+    } else {
+        response = modem.https_body();
+        Serial.print("Error on HTTP POST request: (");
+        Serial.print(responseCode);
+        Serial.print(") ");
+        Serial.println(response);
+        modem.https_end();
+        return false;
+    }
 
-        JsonObject dataList = doc["data"][0];
-        JsonArray logsList = dataList["logs"];
+    modem.https_end();
+    return true;
+}
 
-        if (uid == nullptr && dataList.size() != 0) {
-          httpClient.end();
-          return DATA_EXISTS;
+bool DatabaseManager::updateData(String endpoint, String uid,
+                                 JsonDocument jsonData) {
+    String urlString = url + endpoint + '/' + uid;
+
+    if (!modem.https_begin()) {
+        Serial.println("ERROR: HTTPS initialization failed.");
+        return false;
+    }
+
+    if (!modem.https_set_url(String(urlString), sslVersion, true)) {
+        Serial.println("ERROR: Failed to configure HTTPS URL.");
+        modem.https_end();
+        return false;
+    }
+
+    modem.https_set_content_type("application/json");
+    modem.https_set_timeout(120, 30, 30);
+
+    String jsonPayload;
+    serializeJson(jsonData, jsonPayload);
+
+    responseCode = modem.https_put(jsonPayload);
+    if (responseCode > 0) {
+        response = modem.https_body();
+
+        if (responseCode != HTTP_CREATED && responseCode != HTTP_OK) {
+            Serial.print("Error on HTTP PUT request: (");
+            Serial.print(responseCode);
+            Serial.print(") ");
+            Serial.println(response);
+            modem.https_end();
+            return false;
         }
+    } else {
+        response = modem.https_body();
+        Serial.print("Error on HTTP PUT request: (");
+        Serial.print(responseCode);
+        Serial.print(") ");
+        Serial.println(response);
+        modem.https_end();
+        return false;
+    }
 
-        if (uid != nullptr) {
-          for (JsonObject log : logsList) {
-            String logCardUID = log["log"]["uid_kartu"].as<String>();
+    modem.https_end();
+    return true;
+}
 
-            if (logCardUID == *uid) {
-              httpClient.end();
-              return DATA_EXISTS;
-            }
-          }
+bool DatabaseManager::deleteData(String endpoint, String uid) {
+    String urlString = url + endpoint + '/' + uid;
+
+    if (!modem.https_begin()) {
+        Serial.println("ERROR: HTTPS initialization failed.");
+        return false;
+    }
+
+    if (!modem.https_set_url(String(urlString), sslVersion, true)) {
+        Serial.println("ERROR: Failed to configure HTTPS URL.");
+        modem.https_end();
+        return false;
+    }
+
+    modem.https_set_content_type("application/json");
+    modem.https_set_timeout(120, 30, 30);
+
+    responseCode = modem.https_delete("");
+    if (responseCode > 0) {
+        response = modem.https_body();
+
+        if (responseCode != HTTP_CREATED && responseCode != HTTP_OK) {
+            Serial.print("Error on HTTP DELETE request: (");
+            Serial.print(responseCode);
+            Serial.print(") ");
+            Serial.println(response);
+            modem.https_end();
+            return false;
         }
-      } else {
-        String payload = httpClient.getString();
+    } else {
+        response = modem.https_body();
+        Serial.print("Error on HTTP DELETE request: (");
+        Serial.print(responseCode);
+        Serial.print(") ");
+        Serial.println(response);
+        modem.https_end();
+        return false;
+    }
 
-        int start = payload.indexOf("<pre>") + 5;
-        int end = payload.indexOf("</pre>");
+    modem.https_end();
+    return true;
+}
 
-        JsonDocument doc;
-        DeserializationError deserializeError = deserializeJson(doc, payload);
-        if (start != -1 && end != -1 && end > start) {
-          response = payload.substring(start, end);
-        } else if (!deserializeError) {
-          response = doc["message"].as<String>();
+HashMap<String, String>
+DatabaseManager::readData(String endpoint, String uid,
+                          HashMap<String, String> columnData) {
+    HashMap<String, String> data = {};
+    String urlString = url + endpoint + '/' + uid;
+
+    if (!modem.https_begin()) {
+        Serial.println("ERROR: HTTPS initialization failed.");
+        return data;
+    }
+
+    if (!modem.https_set_url(String(urlString), sslVersion, true)) {
+        Serial.println("ERROR: Failed to configure HTTPS URL.");
+        modem.https_end();
+        return data;
+    }
+
+    modem.https_set_content_type("application/json");
+    modem.https_set_timeout(120, 30, 30);
+
+    size_t bodyLength = 0;
+    responseCode = modem.https_get(&bodyLength);
+
+    if (responseCode > 0) {
+        response = modem.https_body();
+
+        if (responseCode != HTTP_CREATED && responseCode != HTTP_OK) {
+            Serial.print("Error on HTTP GET request: (");
+            Serial.print(responseCode);
+            Serial.print(") ");
+            Serial.println(response);
+            modem.https_end();
         } else {
-          response = payload;
-        }
+            JsonDocument doc, filter;
+            for (size_t i = 0; i < columnData.size(); ++i) {
+                String key = columnData.getKeyAt(i);
+                filter["data"][key] = true;
+            }
 
+            DeserializationError deserializeError = deserializeJson(
+                doc, response, DeserializationOption::Filter(filter));
+
+            if (deserializeError) {
+                Serial.print("Deserialize Json failed: ");
+                Serial.println(deserializeError.c_str());
+
+                modem.https_end();
+                return data;
+            }
+
+            JsonObject dataObject = doc["data"];
+            for (size_t i = 0; i < columnData.size(); ++i) {
+                String key = columnData.getKeyAt(i);
+                if (dataObject.containsKey(key)) {
+                    data.put(key, dataObject[key].as<String>());
+                }
+            }
+        }
+    } else {
+        response = modem.https_body();
         Serial.print("Error on HTTP GET request: (");
         Serial.print(responseCode);
         Serial.print(") ");
         Serial.println(response);
-      }
-    } else {
-      response = HTTPClient::errorToString(responseCode);
-      Serial.print("Error on HTTP GET request: (");
-      Serial.print(responseCode);
-      Serial.print(") ");
-      Serial.println(response);
+        modem.https_end();
     }
 
-    httpClient.end();
-  }
-  return DATA_NOT_FOUND;
+    modem.https_end();
+    return data;
+}
+
+bool DatabaseManager::waitForModem(uint32_t timeout = 30000) {
+    Serial.println();
+    Serial.println("Waiting for modem...");
+
+    uint32_t start = millis();
+
+    while (millis() - start < timeout) {
+        delay(500);
+
+        if (modem.testAT(3000)) {
+            Serial.println("Modem responded to AT.");
+            return true;
+        }
+
+        Serial.println("Waiting for modem AT response...");
+    }
+
+    Serial.println("ERROR: Modem did not respond within timeout.");
+    return false;
 }
 
 /**
- * @brief Retrieves a member's UID by their card UID.
- * This method sends a GET request to the specified gateway
- * and searches for the member associated with the provided card UID.
- *
- * @param endpoint The API endpoint for the specific gateway.
- * @param uid The unique identifier of the card to search for.
- *
- * @return A pointer to a String containing the member ID if found, nullptr
- * otherwise.
- */
-String *PostmanAPI::getMemberByUID(String endpoint, String uid) {
-  String urlString = url + endpoint;
-
-  httpClient.begin(client, urlString);
-  httpClient.setTimeout(10000);
-
-  responseCode = httpClient.GET();
-  if (responseCode > 0) {
-    if (responseCode == HTTP_CODE_OK) {
-      Stream *stream = httpClient.getStreamPtr();
-
-      JsonDocument doc, filter;
-      filter["data"][0]["id"] = true;
-      filter["data"][0]["kartu"]["uid"] = true;
-
-      DeserializationError deserializeError =
-          deserializeJson(doc, *stream, DeserializationOption::Filter(filter));
-
-      if (deserializeError) {
-        Serial.print("Deserialize Json failed: ");
-        Serial.println(deserializeError.c_str());
-
-        httpClient.end();
-        return nullptr;
-      }
-
-      JsonArray dataList = doc["data"];
-      for (JsonObject data : dataList) {
-        JsonObject cardData = data["kartu"];
-        String memberId = data["id"];
-        String memberCardUID = cardData["uid"];
-
-        if (memberCardUID != uid)
-          continue;
-
-        httpClient.end();
-        return new String(memberId);
-      }
-    } else {
-      String payload = httpClient.getString();
-
-      int start = payload.indexOf("<pre>") + 5;
-      int end = payload.indexOf("</pre>");
-
-      JsonDocument doc;
-      DeserializationError deserializeError = deserializeJson(doc, payload);
-      if (start != -1 && end != -1 && end > start) {
-        response = payload.substring(start, end);
-      } else if (!deserializeError) {
-        response = doc["message"].as<String>();
-      } else {
-        response = payload;
-      }
-
-      Serial.print("Error on HTTP GET request: (");
-      Serial.print(responseCode);
-      Serial.print(") ");
-      Serial.println(response);
-    }
-  } else {
-    response = HTTPClient::errorToString(responseCode);
-    Serial.print("Error on HTTP GET request: (");
-    Serial.print(responseCode);
-    Serial.print(") ");
-    Serial.println(response);
-  }
-
-  httpClient.end();
-  return nullptr;
-}
-
-/**
- * @brief Retrieves a member's ID by their name.
- * This method sends a GET request to the specified gateway
- * and searches for the member associated with the provided name.
- *
- * @param endpoint The API endpoint for the specific gateway.
- * @param name The name of the member to search for.
- *
- * @return A pointer to a String containing the member ID if found, nullptr
- * otherwise.
- */
-String *PostmanAPI::getMemberByName(String endpoint, String name) {
-  String urlString = url + endpoint;
-
-  httpClient.begin(client, urlString);
-  httpClient.setTimeout(10000);
-
-  responseCode = httpClient.GET();
-  if (responseCode > 0) {
-    if (responseCode == HTTP_CODE_OK) {
-      Stream *stream = httpClient.getStreamPtr();
-
-      JsonDocument doc, filter;
-      filter["data"][0]["nama"] = true;
-      filter["data"][0]["kartu"]["uid"] = true;
-
-      DeserializationError deserializeError =
-          deserializeJson(doc, *stream, DeserializationOption::Filter(filter));
-
-      if (deserializeError) {
-        Serial.print("Deserialize Json failed: ");
-        Serial.println(deserializeError.c_str());
-
-        httpClient.end();
-        return nullptr;
-      }
-
-      JsonArray dataList = doc["data"];
-      for (JsonObject data : dataList) {
-        String memberName = data["nama"];
-        JsonObject cardData = data["kartu"];
-        String memberCardUID = cardData["uid"];
-
-        if (memberName != name)
-          continue;
-
-        httpClient.end();
-        return new String(memberCardUID);
-      }
-    } else {
-      String payload = httpClient.getString();
-
-      int start = payload.indexOf("<pre>") + 5;
-      int end = payload.indexOf("</pre>");
-
-      JsonDocument doc;
-      DeserializationError deserializeError = deserializeJson(doc, payload);
-      if (start != -1 && end != -1 && end > start) {
-        response = payload.substring(start, end);
-      } else if (!deserializeError) {
-        response = doc["message"].as<String>();
-      } else {
-        response = payload;
-      }
-
-      Serial.print("Error on HTTP GET request: (");
-      Serial.print(responseCode);
-      Serial.print(") ");
-      Serial.println(response);
-    }
-  } else {
-    response = HTTPClient::errorToString(responseCode);
-    Serial.print("Error on HTTP GET request: (");
-    Serial.print(responseCode);
-    Serial.print(") ");
-    Serial.println(response);
-  }
-
-  httpClient.end();
-  return nullptr;
-}
-
-/**
- * @brief Gets the URL of the Postman API.
+ * @brief Gets the URL of the Database Manager.
  * This method returns the URL that was set during the initialization of the
- * PostmanAPI instance.
+ * DatabaseManager instance.
  *
- * @return The URL of the Postman API.
+ * @return The URL of the Database Manager.
  */
-String PostmanAPI::getUrl() const { return url; }
+String DatabaseManager::getUrl() const { return url; }
 
 /**
  * @brief Gets the response from the last API request.
@@ -733,7 +331,7 @@ String PostmanAPI::getUrl() const { return url; }
  *
  * @return The response string from the last API request.
  */
-String PostmanAPI::getResponse() const { return response; }
+String DatabaseManager::getResponse() const { return response; }
 
 /**
  * @brief Gets the response code from the last API request.
@@ -742,4 +340,4 @@ String PostmanAPI::getResponse() const { return response; }
  *
  * @return The HTTP response code from the last API request.
  */
-int PostmanAPI::getResponseCode() const { return responseCode; }
+int DatabaseManager::getResponseCode() const { return responseCode; }
