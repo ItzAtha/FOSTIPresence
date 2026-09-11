@@ -230,6 +230,17 @@ template <typename K, typename V> class HashMap {
    */
   bool isEmpty() const { return head == nullptr; }
 
+  K getKeyAt(size_t index) const {
+    if (index >= count) {
+      throw std::out_of_range("Index out of range");
+    }
+    HashEntry<K, V> *current = head;
+    for (size_t i = 0; i < index; ++i) {
+      current = current->next;
+    }
+    return current->key;
+  }
+
   /**
    * @brief Clears all entries in the hash map.
    * This method removes all entries from the hash map,
