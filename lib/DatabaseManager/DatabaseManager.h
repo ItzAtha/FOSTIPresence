@@ -1,9 +1,6 @@
 #ifndef DATABASEMANAGER_H
 #define DATABASEMANAGER_H
 
-#define TINY_GSM_MODEM_A7670
-#define TINY_GSM_DEBUG Serial
-
 // Import package for SIMCOM A7670 modem
 #include <ArduinoJson.h>
 #include <TinyGsmClient.h>

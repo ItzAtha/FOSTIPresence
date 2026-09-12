@@ -276,7 +276,7 @@ DatabaseManager::readData(String endpoint, String uid,
             JsonObject dataObject = doc["data"];
             for (size_t i = 0; i < columnData.size(); ++i) {
                 String key = columnData.getKeyAt(i);
-                if (dataObject.containsKey(key)) {
+                if (dataObject[key].is<JsonVariant>()) {
                     data.put(key, dataObject[key].as<String>());
                 }
             }
@@ -294,7 +294,7 @@ DatabaseManager::readData(String endpoint, String uid,
     return data;
 }
 
-bool DatabaseManager::waitForModem(uint32_t timeout = 30000) {
+bool DatabaseManager::waitForModem(uint32_t timeout) {
     Serial.println();
     Serial.println("Waiting for modem...");
 
