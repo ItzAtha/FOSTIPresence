@@ -52,6 +52,7 @@ void BluetoothManager::begin(String deviceName) {
     // Create a BLE server and set the callbacks for connection and disconnection events
     NimBLEServer *pServer = NimBLEDevice::createServer();
     pServer->setCallbacks(new BTServerCallbacks(this));
+    pServer->advertiseOnDisconnect(true); // Enable advertising on disconnect
 
     // Create a BLE service and characteristics for sending and receiving data
     NimBLEService *pService = pServer->createService(serviceUUID);
@@ -62,12 +63,6 @@ void BluetoothManager::begin(String deviceName) {
     pCharReceiver = pService->createCharacteristic(
         receiverUUID, NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_NR);
     pCharReceiver->setCallbacks(new BTCharCallbacks(this));
-
-    if (pService->start()) {
-        Serial.println("Service started successfully.");
-    } else {
-        Serial.println("Failed to start service.");
-    }
 
     // Start advertising the BLE service
     NimBLEAdvertising *pAdvertising = NimBLEDevice::getAdvertising();
