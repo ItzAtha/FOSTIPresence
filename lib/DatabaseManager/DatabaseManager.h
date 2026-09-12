@@ -138,6 +138,15 @@ class DatabaseManager {
                                      HashMap<String, String> columnData);
 
     /**
+     * @brief Checks if the modem is connected to the cellular network.
+     * This method verifies the modem's connection status to ensure that
+     * it is properly connected to the GPRS network before making any API requests.
+     *
+     * @return true if the modem is connected, false otherwise.
+     */
+    bool isModemConnected();
+
+    /**
      * @brief Gets the URL of the last request.
      *
      * @return The URL of the last request.

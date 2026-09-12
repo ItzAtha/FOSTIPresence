@@ -315,6 +315,14 @@ bool DatabaseManager::waitForModem(uint32_t timeout = 30000) {
     return false;
 }
 
+bool DatabaseManager::isModemConnected() {
+    if (!modem.isGprsConnected()) {
+        Serial.println("ERROR: Modem is not connected to GPRS.");
+        return false;
+    }
+    return true;
+}
+
 /**
  * @brief Gets the URL of the Database Manager.
  * This method returns the URL that was set during the initialization of the
