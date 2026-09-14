@@ -48,6 +48,7 @@ void BluetoothManager::begin(String deviceName) {
     Serial.println("Initializing Bluetooth module...");
     NimBLEDevice::init(deviceName.c_str());
     NimBLEDevice::setPower(ESP_PWR_LVL_P9);
+    NimBLEDevice::setMTU(517);
 
     // Create a BLE server and set the callbacks for connection and disconnection events
     NimBLEServer *pServer = NimBLEDevice::createServer();
@@ -86,10 +87,14 @@ void BluetoothManager::begin(String deviceName) {
 
 void BluetoothManager::sendData(const String &data) {
     if (pCharSender) {
-        pCharSender->setValue(data.c_str());
-        pCharSender->notify();
-        Serial.print("Sent data: ");
-        Serial.println(data);
+        pCharSender->setValue((const uint8_t *)data.c_str(), data.length());
+        if (pCharSender->notify()) {
+            Serial.println("Notification sent successfully.");
+            Serial.print("Sent data: ");
+            Serial.println(data);
+        } else {
+            Serial.println("Error: Failed to send notification.");
+        }
     } else {
         Serial.println("Error: Data characteristic not initialized.");
     }
