@@ -5,7 +5,7 @@ DatabaseManager::DatabaseManager(TinyGsm &modem, const String &url)
     : url(url), modem(modem) {}
 
 bool DatabaseManager::begin(char *apn, ServerSSLVersion sslVersion,
-                            uint32_t timeout) {
+                            String userAgent, uint32_t timeout) {
     Serial.println("Waiting for modem boot...");
     delay(1000);
 
@@ -66,7 +66,9 @@ bool DatabaseManager::begin(char *apn, ServerSSLVersion sslVersion,
     Serial.print("IP address: ");
     Serial.println(modem.localIP());
 
+    this->apn = apn;
     this->sslVersion = sslVersion;
+    modem.https_set_user_agent(userAgent);
     Serial.println("Modem configured successfully.");
     return true;
 }
@@ -91,6 +93,11 @@ bool DatabaseManager::end() {
 bool DatabaseManager::createData(String endpoint, JsonDocument jsonData) {
     String urlString = url + endpoint;
 
+    if (!ensureReady()) {
+        Serial.println("ERROR: Modem is not ready for communication.");
+        return false;
+    }
+
     if (!modem.https_begin()) {
         Serial.println("ERROR: HTTPS initialization failed.");
         return false;
@@ -102,12 +109,16 @@ bool DatabaseManager::createData(String endpoint, JsonDocument jsonData) {
         return false;
     }
 
+    modem.https_set_accept_type("application/json");
+    modem.https_set_content_type("application/json");
     modem.https_set_timeout(120, 30, 30);
 
     String jsonPayload;
     serializeJson(jsonData, jsonPayload);
 
-    responseCode = modem.https_post_json_format(jsonPayload);
+    Serial.print("Debug: ");
+    Serial.println(jsonPayload);
+    responseCode = modem.https_post(jsonPayload);
     if (responseCode > 0) {
         response = modem.https_body();
 
@@ -137,6 +148,11 @@ bool DatabaseManager::updateData(String endpoint, String uid,
                                  JsonDocument jsonData) {
     String urlString = url + endpoint + '/' + uid;
 
+    if (!ensureReady()) {
+        Serial.println("ERROR: Modem is not ready for communication.");
+        return false;
+    }
+
     if (!modem.https_begin()) {
         Serial.println("ERROR: HTTPS initialization failed.");
         return false;
@@ -148,6 +164,7 @@ bool DatabaseManager::updateData(String endpoint, String uid,
         return false;
     }
 
+    modem.https_set_accept_type("application/json");
     modem.https_set_content_type("application/json");
     modem.https_set_timeout(120, 30, 30);
 
@@ -182,6 +199,11 @@ bool DatabaseManager::updateData(String endpoint, String uid,
 
 bool DatabaseManager::deleteData(String endpoint, String uid) {
     String urlString = url + endpoint + '/' + uid;
+
+    if (!ensureReady()) {
+        Serial.println("ERROR: Modem is not ready for communication.");
+        return false;
+    }
 
     if (!modem.https_begin()) {
         Serial.println("ERROR: HTTPS initialization failed.");
@@ -229,6 +251,11 @@ DatabaseManager::readData(String endpoint, String uid,
     HashMap<String, String> data = {};
     String urlString = url + endpoint + '/' + uid;
 
+    if (!ensureReady()) {
+        Serial.println("ERROR: Modem is not ready for communication.");
+        return data;
+    }
+
     if (!modem.https_begin()) {
         Serial.println("ERROR: HTTPS initialization failed.");
         return data;
@@ -240,7 +267,7 @@ DatabaseManager::readData(String endpoint, String uid,
         return data;
     }
 
-    modem.https_set_content_type("application/json");
+    modem.https_set_accept_type("application/json");
     modem.https_set_timeout(120, 30, 30);
 
     size_t bodyLength = 0;
@@ -313,6 +340,63 @@ bool DatabaseManager::waitForModem(uint32_t timeout) {
 
     Serial.println("ERROR: Modem did not respond within timeout.");
     return false;
+}
+
+bool DatabaseManager::reconnectModem(uint32_t timeout, int retryCount) {
+
+    if (!modem.isNetworkConnected()) {
+        Serial.println("Modem is not connected to the network. Attempting to "
+                       "reconnect...");
+        if (!modem.waitForNetwork(timeout)) {
+            Serial.println("ERROR: Network registration failed.");
+            return false;
+        }
+
+        Serial.println("Network re-registered.");
+    }
+
+    for (uint8_t attempt = 1; attempt <= retryCount; attempt++) {
+        Serial.printf("[Cellular] GPRS connect attempt %d/%d...\n", attempt,
+                      retryCount);
+
+        modem.gprsDisconnect();
+        delay(1000);
+
+        if (modem.gprsConnect(apn)) {
+            Serial.println("[Cellular] GPRS reconnected successfully.");
+            Serial.print("[Cellular] New IP: ");
+            Serial.println(modem.localIP());
+            return true;
+        }
+
+        delay(2000);
+    }
+
+    Serial.println("[Cellular] GPRS failed. Soft-resetting modem stack...");
+    modem.init();
+    modem.waitForNetwork(60000L);
+
+    if (modem.gprsConnect(apn)) {
+        Serial.println("[Cellular] Recovered after modem reinit.");
+        return true;
+    }
+
+    Serial.println("[Cellular] FATAL: Could not restore data connection.");
+    return false;
+}
+
+bool DatabaseManager::ensureReady() {
+    if (!modem.isGprsConnected()) {
+        Serial.println("GPRS disconnected. Reconnecting before request...");
+        if (!reconnectModem(30000, 5)) {
+            return false;
+        }
+    }
+
+    while (modem.stream.available()) {
+        modem.stream.read();
+    }
+    return true;
 }
 
 bool DatabaseManager::isModemConnected() {

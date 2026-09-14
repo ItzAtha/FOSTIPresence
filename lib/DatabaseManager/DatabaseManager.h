@@ -29,6 +29,8 @@ typedef enum {
 
 class DatabaseManager {
   private:
+    // Access Point Name for the cellular network
+    char *apn;
     // Base URL for the API
     String url;
     // Response from the API
@@ -37,6 +39,17 @@ class DatabaseManager {
     int responseCode;
     TinyGsm &modem;
     ServerSSLVersion sslVersion;
+
+    /**
+     * @brief Ensures that the modem is ready for communication.
+     *
+     * This method checks if the modem is initialized and ready to send
+     * and receive data. It performs necessary checks and configurations
+     * to ensure that the modem is in a proper state for communication.
+     *
+     * @return true if the modem is ready, false otherwise.
+     */
+    bool ensureReady();
 
     /**
      * @brief Waits for the modem to boot and become responsive.
@@ -49,6 +62,15 @@ class DatabaseManager {
      * @return true if the modem responded within the timeout, false otherwise.
      */
     bool waitForModem(uint32_t timeout = 30000);
+
+    /**
+     * @brief Reconnects the modem to the cellular network.
+     *
+     * @param timeout The maximum time to wait for reconnection.
+     *
+     * @return true if the modem is successfully reconnected, false otherwise.
+     */
+    bool reconnectModem(uint32_t timeout = 30000, int retryCount = 3);
 
   public:
     DatabaseManager(TinyGsm &modem, const String &url);
@@ -65,7 +87,7 @@ class DatabaseManager {
      * @return true if initialization was successful, false otherwise.
      */
     bool begin(char *apn, ServerSSLVersion sslVersion,
-               uint32_t timeout = 30000);
+               String userAgent = "ESP32-A7670E", uint32_t timeout = 30000);
 
     /**
      * @brief Cleans up and closes the HTTP client.
