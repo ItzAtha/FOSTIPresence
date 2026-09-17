@@ -150,12 +150,12 @@ ArrayList<String> splitString(const String &str, char delimiter) {
  */
 String getPresenceOptionName(PresenceOption option) {
     switch (option) {
-    case PresenceOption::BPHI:
-        return "BPHI";
-    case PresenceOption::COMMITTEE:
-        return "PANITIA";
     case PresenceOption::PARTICIPANT:
         return "PESERTA";
+    case PresenceOption::COMMITTEE:
+        return "PANITIA";
+    case PresenceOption::BPHI:
+        return "BPHI";
     default:
         return "UNKNOWN";
     }
@@ -216,7 +216,7 @@ void setup() {
 
     // Connect to API Server
     Serial.println("Connecting to API Server and Modem...");
-    if (dbManager.begin(APN, TINYGSM_SSL_TLS1_2, "ESP32-PRESENCE")) {
+    if (dbManager.begin(APN, TINYGSM_SSL_TLS1_2, "ESP32-PRESENCE", 60000)) {
         Serial.println("API Server and Modem connected!");
     } else {
         Serial.println("Failed to connect to API Server and Modem!");
@@ -518,44 +518,146 @@ void showAttendanceMenu() {
  * @param UID The UID Card of the member.
  * @param option The type of attendance (BPHI, Committee, or Participant).
  */
-void memberAttendance(String UID, PresenceOption option) {
+void memberAttendance(String cardUID, PresenceOption option) {
     Serial.println("Fetching member UID to database...");
 
-    HashMap<String, String> attendanceData;
-    attendanceData.put("uid", UID);
-    attendanceData.put("role", getPresenceOptionName(option));
+    String callbackData;
+    JsonDocument callbackDoc;
+    callbackDoc["message"] = "Member Card UID Detected!";
 
-    String currentDate = getNetworkDate();
+    JsonObject data = callbackDoc["data"].to<JsonObject>();
+    data["status"] = "CARD_DETECTED";
+    data["card_uid"] = cardUID;
+    serializeJson(callbackDoc, callbackData);
+    btManager.sendData(callbackData);
 
-    bool isSuccess =
-        dbManager.createData("/api/log/masuk", attendanceData.toJson());
+    // ====[ Wait for data from the Bluetooth device with a timeout ]====
+    JsonDocument doc;
+    bool dataReceived = false;
+    const unsigned long TIMEOUT_MS = 60000;
+    unsigned long startTime = millis();
 
-    if (isSuccess) {
-        Serial.println("Successfully wrote data to API Server!");
-        Serial.printf("Member with UID %s doing Log In attendance on %s!\n",
-                      UID, currentDate);
+    while (millis() - startTime < TIMEOUT_MS) {
+        if (btManager.hasData()) {
+            String receivedData = btManager.receiveData();
+            Serial.println("Received Data: " + receivedData);
 
-        display.setTextColor(TFT_BLACK);
-        display.setCursor((display.width() - 180) / 2,
-                          (display.height() + 130) / 2);
-        display.print("ID Card Detected!");
-        display.setTextColor(TFT_WHITE);
-        display.setCursor((display.width() - 160) / 2,
-                          (display.height() + 130) / 2);
-        display.print("Success Log In!");
+            DeserializationError deserializeError =
+                deserializeJson(doc, receivedData);
 
-        // showMemberData(memberID);
-    } else {
-        Serial.println("Failed to write data to API Server!");
+            if (deserializeError != deserializeError.Ok) {
+                Serial.print("Deserialize data failed: ");
+                Serial.println(deserializeError.c_str());
 
-        display.setTextColor(TFT_BLACK);
-        display.setCursor((display.width() - 180) / 2,
-                          (display.height() + 130) / 2);
-        display.print("ID Card Detected!");
-        display.setTextColor(TFT_WHITE);
-        display.setCursor((display.width() - 210) / 2,
-                          (display.height() + 130) / 2);
-        display.print("Failed to Attendance!");
+                callbackData = "";
+                callbackDoc.clear();
+                callbackDoc["message"] = "Failed to deserialize data!";
+
+                JsonObject data = callbackDoc["data"].to<JsonObject>();
+                data["status"] = "DESERIALIZE_FAILED";
+
+                serializeJson(callbackDoc, callbackData);
+                btManager.sendData(callbackData);
+                continue;
+            }
+            dataReceived = true;
+            break;
+        }
+        vTaskDelay(pdMS_TO_TICKS(
+            100)); // Wait for 100 milliseconds before checking again
+    }
+    // ==================================================================
+
+    if (!dataReceived) {
+        Serial.println("Timeout: No data received from Bluetooth!");
+
+        callbackData = "";
+        callbackDoc.clear();
+        callbackDoc["message"] = "Timeout: No data received!";
+
+        JsonObject data = callbackDoc["data"].to<JsonObject>();
+        data["status"] = "TIMEOUT_NO_DATA";
+
+        serializeJson(callbackDoc, callbackData);
+        btManager.sendData(callbackData);
+        return;
+    }
+
+    String status = doc["data"]["status"].as<String>();
+    if (status == "USER_VALID_AND_NOT_ATTENDANCE") {
+        String memberId = doc["data"]["memberId"].as<String>();
+        String name = doc["data"]["nama"].as<String>();
+        String nim = doc["data"]["nim"].as<String>();
+        String division = doc["data"]["divisi"].as<String>();
+
+        Serial.println("Member Id: " + memberId);
+        Serial.println("Name: " + name);
+        Serial.println("NIM: " + nim);
+        Serial.println("Division: " + division);
+
+        HashMap<String, String> attendanceData;
+        attendanceData.put("uid", cardUID);
+        attendanceData.put("role", getPresenceOptionName(option));
+
+        String currentDate = getNetworkDate();
+
+        bool isSuccess =
+            dbManager.createData("/api/log/masuk", attendanceData.toJson());
+
+        callbackData = "";
+        callbackDoc.clear();
+        if (isSuccess) {
+            Serial.println("Successfully wrote data to API Server!");
+            Serial.printf("Member with UID %s doing Log In attendance on %s!\n",
+                          cardUID, currentDate);
+
+            callbackDoc["message"] =
+                "User successfully attendence on active event!";
+
+            JsonObject data = callbackDoc["data"].to<JsonObject>();
+            data["status"] = "USER_SUCCESS_ATTENDANCE";
+            data["card_uid"] = cardUID;
+
+            serializeJson(callbackDoc, callbackData);
+            btManager.sendData(callbackData);
+
+            display.setTextColor(TFT_BLACK);
+            display.setCursor((display.width() - 180) / 2,
+                              (display.height() + 130) / 2);
+            display.print("ID Card Detected!");
+            display.setTextColor(TFT_WHITE);
+            display.setCursor((display.width() - 160) / 2,
+                              (display.height() + 130) / 2);
+            display.print("Success Log In!");
+
+            showMemberData(memberId);
+        } else {
+            Serial.println("Failed to write data to API Server!");
+
+            callbackDoc["message"] = "User failed attendence on active event!";
+
+            JsonObject data = callbackDoc["data"].to<JsonObject>();
+            data["status"] = "USER_FAILED_ATTENDANCE";
+            data["card_uid"] = cardUID;
+
+            serializeJson(callbackDoc, callbackData);
+            btManager.sendData(callbackData);
+
+            display.setTextColor(TFT_BLACK);
+            display.setCursor((display.width() - 180) / 2,
+                              (display.height() + 130) / 2);
+            display.print("ID Card Detected!");
+            display.setTextColor(TFT_WHITE);
+            display.setCursor((display.width() - 210) / 2,
+                              (display.height() + 130) / 2);
+            display.print("Failed to Attendance!");
+        }
+        return;
+    } else if (status == "USER_ALREADY_ATTENDANCE_OR_EVENT_NOT_EXISTS") {
+        Serial.println(
+            "User already attend on active event or event not exists!");
+    } else if (status == "USER_NOT_EXISTS") {
+        Serial.println("User not exists in database!");
     }
 
     vTaskDelay(pdMS_TO_TICKS(5000));
@@ -943,44 +1045,34 @@ void TaskAttendance(void *pvParameters) {
             if (btManager.hasData()) {
                 String receivedData = btManager.receiveData();
                 if (receivedData.equalsIgnoreCase("Cancel")) {
-                    Serial.println(
-                        "Attendance canceled. Returning to main menu...");
-                    break;
+                    if (presenceOption != PresenceOption::NONE) {
+                        Serial.println("Attendance canceled. Returning to "
+                                       "attendance menu...");
+                        presenceOption = PresenceOption::NONE;
+                    } else {
+                        Serial.println("Attendance canceled. Returning to "
+                                       "main menu...");
+                        break;
+                    }
                 }
 
                 int option = receivedData.toInt();
                 switch (option) {
                 case 1:
                     Serial.println("Presence member as Participant...");
-                    delay(1000);
                     presenceOption = PresenceOption::PARTICIPANT;
                     break;
                 case 2:
                     Serial.println("Presence member as Committee...");
-                    delay(1000);
                     presenceOption = PresenceOption::COMMITTEE;
                     break;
                 case 3:
                     Serial.println("Presence member as BPHI...");
-                    delay(1000);
                     presenceOption = PresenceOption::BPHI;
                     break;
                 case 4:
                     Serial.println("Manual attendance member...");
                     manualAttendance();
-
-                    String callbackData;
-                    JsonDocument callbackDoc;
-                    callbackDoc["dataType"] = "DATA";
-
-                    JsonObject data = callbackDoc["data"].to<JsonObject>();
-                    data["onManualPresence"] = false;
-                    serializeJson(callbackDoc, callbackData);
-                    SerialBT.println(callbackData);
-                    delay(1000);
-
-                    presenceOption = PresenceOption::NONE;
-                    showAttendanceMenu();
                     break;
                 }
             }
@@ -991,17 +1083,6 @@ void TaskAttendance(void *pvParameters) {
                 // Check if the member UID card is valid
                 if (uid != nullptr) {
                     String memberUID = *uid;
-
-                    String callbackData;
-                    JsonDocument callbackDoc;
-                    callbackDoc["message"] = "Member Card UID Detected!";
-
-                    JsonObject data = callbackDoc["data"].to<JsonObject>();
-                    data["status"] = "CARD_DETECTED";
-                    data["card_uid"] = memberUID;
-                    serializeJson(callbackDoc, callbackData);
-                    SerialBT.println(callbackData);
-
                     memberAttendance(memberUID, presenceOption);
 
                     delete uid;
