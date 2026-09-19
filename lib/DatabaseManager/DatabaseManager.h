@@ -64,6 +64,18 @@ class DatabaseManager {
     bool waitForModem(uint32_t timeout = 30000);
 
     /**
+     * @brief Waits for the sim to boot and become responsive.
+     *
+     * This method checks if the sim is ready by sending AT commands
+     * and waiting for a response. It will keep checking until the sim
+     * responds or the specified timeout is reached.
+     *
+     * @param timeout Maximum time to wait for the modem to respond (in milliseconds).
+     * @return true if the sim responded within the timeout, false otherwise.
+     */
+    bool waitForSim(uint32_t timeout = 30000);
+
+    /**
      * @brief Reconnects the modem to the cellular network.
      *
      * @param timeout The maximum time to wait for reconnection.
