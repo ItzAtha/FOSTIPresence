@@ -88,6 +88,9 @@ Preferences pref;
 // ====================================================================
 
 // ========================[ Others Settings ]=========================
+#include <atomic>
+#include <esp_task_wdt.h>
+
 #define DEBUG_MODE true
 
 // Enum for System Options
@@ -106,6 +109,8 @@ PresenceOption presenceOption =
     PresenceOption::NONE; // Current attendance option
 
 bool showDivision = false; // Flag to show division in attendance
+std::atomic<bool>
+    stopLoading(false); // Flag to signal the loading task to terminate
 
 // Define ESP32 RTOS task method
 void TaskLoadingBar(void *pvParameters);
@@ -193,6 +198,8 @@ void setup() {
 
     SerialBT.begin(BLUETOOTH_BAUD, SERIAL_8N1, BLUETOOTH_RX, BLUETOOTH_TX);
 
+    esp_task_wdt_init(30, true);
+
     // Initialize SPI for RFID Reader
     SPI.begin(18, 19, 23, SS_PIN);
     rfid.PCD_Init();
@@ -208,7 +215,8 @@ void setup() {
     display.pushImage(185, 25, fostiLogoWidth, fostiLogoHeight, fostiLogo);
     delay(2000);
 
-    xTaskCreate(TaskLoadingBar, "Loading Bar", 2048, NULL, 1,
+    stopLoading.store(false);
+    xTaskCreate(TaskLoadingBar, "Loading Bar", 4096, NULL, 1,
                 &taskLoadingHandler);
 
     // Initialize Bluetooth Manager
@@ -221,7 +229,7 @@ void setup() {
     } else {
         Serial.println("Failed to connect to API Server and Modem!");
         while (1)
-            ; // Don't proceed, loop forever
+            vTaskDelay(pdMS_TO_TICKS(1000)); // Don't proceed, loop forever
     }
     Serial.println();
     delay(500);
@@ -233,23 +241,26 @@ void setup() {
     } else {
         Serial.println("Failed to connect to Preferences Database!");
         while (1)
-            ; // Don't proceed, loop forever
+            vTaskDelay(pdMS_TO_TICKS(1000)); // Don't proceed, loop forever
     }
-    delay(1500);
+    delay(500);
+
+    stopLoading.store(true);
+    delay(600);
 
     display.fillScreen(TFT_BLACK);
-    vTaskDelete(taskLoadingHandler);
 
     /**
      * Create the main tasks for the ESP32 system.
      * These tasks handle the main menu, member registration,
      * and member attendance functionalities.
      */
-    xTaskCreate(TaskMain, "Main Menu", 8192, NULL, 1, &taskMainHandler);
-    xTaskCreate(TaskRegister, "Register Data", 8192, NULL, 1,
-                &taskRegisterHandler);
-    xTaskCreate(TaskAttendance, "Member Attendance", 8192, NULL, 1,
-                &taskAttendanceHandler);
+    xTaskCreatePinnedToCore(TaskMain, "Main Menu", 10240, NULL, 1,
+                            &taskMainHandler, 1);
+    xTaskCreatePinnedToCore(TaskRegister, "Register Data", 10240, NULL, 1,
+                            &taskRegisterHandler, 1);
+    xTaskCreatePinnedToCore(TaskAttendance, "Member Attendance", 10240, NULL, 1,
+                            &taskAttendanceHandler, 1);
 }
 
 // TODO: Add register member to OLED LCD and add loading animation when registering member data to Database
@@ -272,32 +283,33 @@ void registerMember() {
     Serial.println("**Card Detected!**");
 
     // Get the UID of the card
-    String memberUID = "";
+    String cardUID = "";
     for (byte i = 0; i < rfid.uid.size; i++) {
-        memberUID += rfid.uid.uidByte[i] < 0x10 ? " 0" : " ";
-        memberUID += String(rfid.uid.uidByte[i], HEX);
+        cardUID += rfid.uid.uidByte[i] < 0x10 ? " 0" : " ";
+        cardUID += String(rfid.uid.uidByte[i], HEX);
     }
-    memberUID.trim();
-    memberUID.toUpperCase();
+    cardUID.trim();
+    cardUID.toUpperCase();
 
     // Send a message to the Bluetooth device indicating that a card has been detected
     String callbackData;
-    JsonDocument callbackDoc;
+    JsonDocument doc, callbackDoc;
     callbackDoc["message"] = "Member Card UID Detected!";
 
     JsonObject data = callbackDoc["data"].to<JsonObject>();
     data["status"] = "CARD_DETECTED";
-    data["card_uid"] = memberUID;
+    data["card_uid"] = cardUID;
     serializeJson(callbackDoc, callbackData);
     btManager.sendData(callbackData);
 
     // ====[ Wait for data from the Bluetooth device with a timeout ]====
-    JsonDocument doc;
     bool dataReceived = false;
     const unsigned long TIMEOUT_MS = 60000;
     unsigned long startTime = millis();
 
     while (millis() - startTime < TIMEOUT_MS) {
+        esp_task_wdt_reset();
+
         if (btManager.hasData()) {
             String receivedData = btManager.receiveData();
             Serial.println("Received Data: " + receivedData);
@@ -356,15 +368,15 @@ void registerMember() {
     }
 
     // Extract member data from the received JSON document
-    String nim = doc["nim"];
-    String name = doc["nama"];
-    String division = doc["divisi"];
+    String nim = doc["nim"].as<String>();
+    String name = doc["nama"].as<String>();
+    String division = doc["divisi"].as<String>();
 
     Serial.println("NIM: " + nim);
     Serial.println("Name: " + name);
     Serial.println("Division: " + division);
 
-    memberData.put("uid", memberUID);
+    memberData.put("uid", cardUID);
     memberData.put("nim", nim);
     memberData.put("nama", name);
     memberData.put("divisi", division);
@@ -381,8 +393,13 @@ void registerMember() {
     callbackData = "";
     callbackDoc.clear();
 
+    esp_task_wdt_reset();
+
     bool isSuccess =
         dbManager.createData("/api/mahasiswa", memberData.toJson());
+
+    esp_task_wdt_reset();
+
     if (isSuccess) {
         Serial.println("Successfully wrote data to API database!");
 
@@ -420,7 +437,7 @@ void registerMember() {
  *
  * @note This function uses the API to retrieve member data.
  */
-void showMemberData(String UID, bool showOnLED = true) {
+void showMemberData(String memberUID, bool showOnLED = true) {
     // Map member data to display columns
     HashMap<String, String> column;
     column.put("uid", "Member UID");
@@ -430,7 +447,7 @@ void showMemberData(String UID, bool showOnLED = true) {
         column.put("divisi", "Member Division");
 
     HashMap<String, String> memberData =
-        dbManager.readData("/api/mahasiswa", UID, column);
+        dbManager.readData("/api/mahasiswa", memberUID, column);
 
     // Print member data to Serial Monitor
     Serial.println("=========] Member Data [=========");
@@ -520,9 +537,10 @@ void showAttendanceMenu() {
  */
 void memberAttendance(String cardUID, PresenceOption option) {
     Serial.println("Fetching member UID to database...");
+    vTaskDelay(pdMS_TO_TICKS(100));
 
     String callbackData;
-    JsonDocument callbackDoc;
+    JsonDocument doc, callbackDoc;
     callbackDoc["message"] = "Member Card UID Detected!";
 
     JsonObject data = callbackDoc["data"].to<JsonObject>();
@@ -532,12 +550,13 @@ void memberAttendance(String cardUID, PresenceOption option) {
     btManager.sendData(callbackData);
 
     // ====[ Wait for data from the Bluetooth device with a timeout ]====
-    JsonDocument doc;
     bool dataReceived = false;
     const unsigned long TIMEOUT_MS = 60000;
     unsigned long startTime = millis();
 
     while (millis() - startTime < TIMEOUT_MS) {
+        esp_task_wdt_reset();
+
         if (btManager.hasData()) {
             String receivedData = btManager.receiveData();
             Serial.println("Received Data: " + receivedData);
@@ -601,8 +620,12 @@ void memberAttendance(String cardUID, PresenceOption option) {
 
         String currentDate = getNetworkDate();
 
+        esp_task_wdt_reset();
+
         bool isSuccess =
             dbManager.createData("/api/log/masuk", attendanceData.toJson());
+
+        esp_task_wdt_reset();
 
         callbackData = "";
         callbackDoc.clear();
@@ -672,118 +695,147 @@ void memberAttendance(String cardUID, PresenceOption option) {
  * saves the attendance data to the PostmanAPI Server.
  */
 void manualAttendance() {
-    HashMap<String, String> memberData;
-    char buffer[64]; // Buffer to hold input data
-
+    // ====[ Wait for data from the Bluetooth device with a timeout ]====
     String callbackData;
-    JsonDocument callbackDoc;
-    callbackDoc["dataType"] = "DATA";
+    JsonDocument doc, callbackDoc;
+    bool dataReceived = false;
+    const unsigned long TIMEOUT_MS = 60000;
+    unsigned long startTime = millis();
 
-    JsonObject data = callbackDoc["data"].to<JsonObject>();
-    data["onManualPresence"] = true;
-    serializeJson(callbackDoc, callbackData);
-    SerialBT.println(callbackData);
+    while (millis() - startTime < TIMEOUT_MS) {
+        esp_task_wdt_reset();
 
-    String inputData = "";
-    size_t readData = -1;
+        if (btManager.hasData()) {
+            String receivedData = btManager.receiveData();
+            Serial.println("Received Data: " + receivedData);
 
-    Serial.println("===========] Manual Attendance [===========");
-    Serial.println("Please enter member name and nim you want to be marked:");
-    Serial.println("Note: You can type 'Cancel' to cancel the attendance.");
-    Serial.println();
+            if (receivedData.equalsIgnoreCase("Cancel")) {
+                Serial.println("Manual Attendance canceled via Bluetooth.");
+                rfid.PICC_HaltA();
+                rfid.PCD_StopCrypto1();
+                return;
+            }
 
-    SerialBT.println("======] Manual Presence [======");
-    SerialBT.println("Please enter member name and nim you want to be marked:");
-    SerialBT.println("You can type 'Cancel' to cancel the presence.</nl>");
+            DeserializationError deserializeError =
+                deserializeJson(doc, receivedData);
 
-    // ===================[ Prompt for Name ]===================
-    Serial.print("Write Member Name: ");
-    SerialBT.println("Write Member Name: ");
+            if (deserializeError != deserializeError.Ok) {
+                Serial.print("Deserialize data failed: ");
+                Serial.println(deserializeError.c_str());
 
-    // Read until newline or buffer is full
-    buffer[readData] = '\0'; // Null-terminate C-string
+                callbackData = "";
+                callbackDoc.clear();
+                callbackDoc["message"] = "Failed to deserialize data!";
 
-    // Convert to Arduino String
-    inputData = String(buffer);
-    inputData.trim();
+                JsonObject data = callbackDoc["data"].to<JsonObject>();
+                data["status"] = "DESERIALIZE_FAILED";
 
-    // If input is Cancel or no input is received, cancel the registration
-    if (inputData.equals("")) {
-        Serial.println("Timeout for waiting input data! Try again later.");
-        SerialBT.println(
-            "</nl>Timeout for waiting input data! Try again later.</nl>");
-        Serial.println();
-        return;
-    } else if (inputData.equalsIgnoreCase("Cancel")) {
-        Serial.println("Register data has been canceled!");
-        SerialBT.println("</nl>Register data has been canceled!</nl>");
-        Serial.println();
+                serializeJson(callbackDoc, callbackData);
+                btManager.sendData(callbackData);
+                continue;
+            }
+            dataReceived = true;
+            break;
+        }
+        vTaskDelay(pdMS_TO_TICKS(
+            100)); // Wait for 100 milliseconds before checking again
+    }
+    // ==================================================================
+
+    // If no data was received from the Bluetooth device within the timeout period, send a timeout message
+    if (!dataReceived) {
+        Serial.println("Timeout: No data received from Bluetooth!");
+
+        callbackData = "";
+        callbackDoc.clear();
+        callbackDoc["message"] = "Timeout: No data received!";
+
+        JsonObject data = callbackDoc["data"].to<JsonObject>();
+        data["status"] = "TIMEOUT_NO_DATA";
+
+        serializeJson(callbackDoc, callbackData);
+        btManager.sendData(callbackData);
         return;
     }
 
-    String namaAnggota = inputData;
-    Serial.println(namaAnggota);
-    memberData.put("nama", namaAnggota);
-    buffer[0] = '\0'; // clear buffer
+    String nim = doc["data"]["nim"].as<String>();
+    String status = doc["data"]["status"].as<String>();
 
-    // ===================[ Prompt for NIM ]===================
-    Serial.print("Write Member NIM: ");
-    SerialBT.println("Write Member NIM: ");
+    if (status == "MEMBER_NOT_YET_ATTENDANCE") {
+        String memberId = doc["data"]["memberId"].as<String>();
+        String cardUID = doc["data"]["cardUID"].as<String>();
+        String name = doc["data"]["nama"].as<String>();
 
-    // Read until newline or buffer is full
-    buffer[readData] = '\0'; // Null-terminate C-string
+        Serial.println("Member Id: " + memberId);
+        Serial.println("Name: " + name);
+        Serial.println("NIM: " + nim);
 
-    // Convert to Arduino String
-    inputData = String(buffer);
-    inputData.trim();
+        HashMap<String, String> attendanceData;
+        attendanceData.put("nim", nim);
+        attendanceData.put("nama", name);
 
-    // If input is Cancel or no input is received, cancel the registration
-    if (inputData.equals("")) {
-        Serial.println("Timeout for waiting input data! Try again later.");
-        SerialBT.println(
-            "</nl>Timeout for waiting input data! Try again later.</nl>");
-        Serial.println();
+        String currentDate = getNetworkDate();
+
+        bool isSuccess = true;
+        // dbManager.createData("/api/log/izin", attendanceData.toJson());
+
+        callbackData = "";
+        callbackDoc.clear();
+        if (isSuccess) {
+            Serial.println("Successfully wrote data to API Server!");
+            Serial.printf(
+                "Member with UID %s doing manual Log In attendance on %s!\n",
+                cardUID, currentDate);
+
+            callbackDoc["message"] =
+                "User successfully manual attendence on active event!";
+            callbackDoc["status"] = "MEMBER_SUCCESS_MANUAL_ATTENDANCE";
+
+            serializeJson(callbackDoc, callbackData);
+            btManager.sendData(callbackData);
+
+            display.setTextColor(TFT_BLACK);
+            display.setCursor((display.width() - 180) / 2,
+                              (display.height() + 130) / 2);
+            display.print("ID Card Detected!");
+            display.setTextColor(TFT_WHITE);
+            display.setCursor((display.width() - 160) / 2,
+                              (display.height() + 130) / 2);
+            display.print("Success Log In!");
+
+            // showMemberData(memberId);
+        } else {
+            Serial.println("Failed to write data to API Server!");
+
+            callbackDoc["message"] =
+                "User failed manual attendence on active event!";
+            callbackDoc["status"] = "MEMBER_FAILED_MANUAL_ATTENDANCE";
+
+            serializeJson(callbackDoc, callbackData);
+            btManager.sendData(callbackData);
+
+            display.setTextColor(TFT_BLACK);
+            display.setCursor((display.width() - 180) / 2,
+                              (display.height() + 130) / 2);
+            display.print("ID Card Detected!");
+            display.setTextColor(TFT_WHITE);
+            display.setCursor((display.width() - 210) / 2,
+                              (display.height() + 130) / 2);
+            display.print("Failed to Attendance!");
+        }
         return;
-    } else if (inputData.equalsIgnoreCase("Cancel")) {
-        Serial.println("Register data has been canceled!");
-        SerialBT.println("</nl>Register data has been canceled!</nl>");
+    } else if (status == "MEMBER_ALREADY_ATTENDANCE") {
+        Serial.printf("Member with NIM %s has already "
+                      "attended the active event!",
+                      nim);
         Serial.println();
-        return;
+    } else if (status == "NO_ACTIVE_EVENT") {
+        Serial.println("No active event available!");
+    } else if (status == "MEMBER_NOT_EXISTS") {
+        Serial.println("Member not exists in database!");
     }
 
-    String nimAnggota = inputData;
-    Serial.println(nimAnggota);
-    memberData.put("nim", nimAnggota);
-    buffer[0] = '\0'; // clear buffer
-
-    // Save member attendance data to PostmanAPI database
-    Serial.println("Write data to PostmanAPI database...");
-    SerialBT.println("</nl>Write data to PostmanAPI database...");
-    delay(500);
-
-    String memberCardUID;
-    String currentDate = getNetworkDate();
-
-    bool success = dbManager.createData("/api/log/izin", memberData.toJson());
-    if (success) {
-        Serial.println("Successfully wrote data to PostmanAPI database!");
-        SerialBT.println("Successfully wrote data to PostmanAPI Server!");
-        delay(500);
-        Serial.println();
-        Serial.printf("You forced Member with UID %s to absent on %s!\n",
-                      memberCardUID, currentDate);
-        SerialBT.printf(
-            "You forced Member with UID %s to absent on %s!</nl></nl>\n",
-            memberCardUID, currentDate);
-        delay(500);
-
-        showMemberData(memberCardUID, false);
-    } else {
-        Serial.println("Failed to write data to PostmanAPI Server!");
-        SerialBT.println("Failed to write data to PostmanAPI Server!</nl>");
-    }
-
-    delay(5000);
+    vTaskDelay(pdMS_TO_TICKS(5000));
     Serial.println();
 }
 
@@ -849,6 +901,29 @@ void showMenu() {
 }
 
 /**
+ * @brief Show the attendance options.
+ * This function displays the attendance options
+ * on the Serial Monitor. It provides options for
+ * the user to attendance on active event.
+ */
+void showAttendanceOptions() {
+    Serial.println();
+    Serial.println("=========] Attendance Options [=========");
+    Serial.println("Press 1: Attendance as Participant");
+    Serial.println("Press 2: Attendance as Committee");
+    Serial.println("Press 3: Attendance as BPHI");
+    Serial.println("Press 4: Manual Attendance");
+    Serial.println("========================================");
+    Serial.println();
+
+    display.fillScreen(TFT_BLACK);
+    display.setCursor(40, 60);
+    display.print("See Presence Manager");
+    display.setCursor(40, 90);
+    display.print("app for Menu Selection!");
+}
+
+/**
  * @brief Main loop function.
  * The loop function is empty because using FreeRTOS tasks
  * to handle the main functionality of the program.
@@ -872,50 +947,34 @@ void TaskLoadingBar(void *pvParameters) {
 
     int currentLoadingDot = 0;
 
-    for (;;) {
+    while (!stopLoading.load()) {
         currentLoadingDot++;
         int x = (display.width() - 100) / 2;
         int y = (display.height() + 120) / 2;
 
-        if (currentLoadingDot == 0) {
-            display.setTextColor(TFT_BLACK);
-            display.setCursor(x, y);
-            display.print("Loading....");
-            display.setTextColor(TFT_WHITE);
-            display.setCursor(x, y);
-            display.print("Loading");
-        } else if (currentLoadingDot == 1) {
-            display.setTextColor(TFT_BLACK);
-            display.setCursor(x, y);
-            display.print("Loading");
-            display.setTextColor(TFT_WHITE);
-            display.setCursor(x, y);
+        display.setTextColor(TFT_BLACK);
+        display.setCursor(x, y);
+        display.print("Loading....");
+
+        display.setTextColor(TFT_WHITE);
+        display.setCursor(x, y);
+        if (currentLoadingDot == 1)
             display.print("Loading.");
-        } else if (currentLoadingDot == 2) {
-            display.setTextColor(TFT_BLACK);
-            display.setCursor(x, y);
-            display.print("Loading.");
-            display.setTextColor(TFT_WHITE);
-            display.setCursor(x, y);
+        else if (currentLoadingDot == 2)
             display.print("Loading..");
-        } else if (currentLoadingDot == 3) {
-            display.setTextColor(TFT_BLACK);
-            display.setCursor(x, y);
-            display.print("Loading..");
-            display.setTextColor(TFT_WHITE);
-            display.setCursor(x, y);
+        else if (currentLoadingDot == 3)
             display.print("Loading...");
-        } else if (currentLoadingDot == 4) {
-            display.setTextColor(TFT_BLACK);
-            display.setCursor(x, y);
-            display.print("Loading...");
-            display.setTextColor(TFT_WHITE);
-            display.setCursor(x, y);
+        else if (currentLoadingDot == 4)
             display.print("Loading....");
-            currentLoadingDot = -1;
+        else {
+            display.print("Loading");
+            currentLoadingDot = 0;
         }
+
         vTaskDelay(pdMS_TO_TICKS(500));
     }
+
+    vTaskDelete(NULL);
 }
 
 /**
@@ -930,10 +989,14 @@ void TaskLoadingBar(void *pvParameters) {
 void TaskMain(void *pvParameters) {
     (void)pvParameters;
 
+    esp_task_wdt_add(NULL);
+
     // Show the menu list once on the Serial Monitor
     showMenu();
 
     for (;;) {
+        esp_task_wdt_reset();
+
         // Check if the system is disconnected or no data is available
         if (!btManager.hasData()) {
             vTaskDelay(pdMS_TO_TICKS(1000));
@@ -957,9 +1020,14 @@ void TaskMain(void *pvParameters) {
                         taskRegisterHandler); // Notify the register task to start
                 }
 
+                esp_task_wdt_delete(NULL);
+
                 ulTaskNotifyTake(
                     pdTRUE,
                     portMAX_DELAY); // Wait for the register task to complete
+
+                esp_task_wdt_add(NULL);
+                esp_task_wdt_reset();
 
                 showMenu();
                 break;
@@ -972,9 +1040,14 @@ void TaskMain(void *pvParameters) {
                         taskAttendanceHandler); // Notify the attendance task to start
                 }
 
+                esp_task_wdt_delete(NULL);
+
                 ulTaskNotifyTake(
                     pdTRUE,
                     portMAX_DELAY); // Wait for the attendance task to complete
+
+                esp_task_wdt_add(NULL);
+                esp_task_wdt_reset();
 
                 showMenu();
                 break;
@@ -989,7 +1062,7 @@ void TaskMain(void *pvParameters) {
 /**
  * @brief Handle member registration.
  * This task runs in a loop and waits for the main menu option to be set to
- * REGISTER. When it is, calls the @ref registerMember function to register 
+ * REGISTER. When it is, calls the @ref registerMember function to register
  * the member data.
  *
  * @param pvParameters Pointer to the task parameters (not used).
@@ -1000,10 +1073,13 @@ void TaskRegister(void *pvParameters) {
     for (;;) {
         ulTaskNotifyTake(pdTRUE,
                          portMAX_DELAY); // Wait for notification to start
+        esp_task_wdt_add(NULL);
 
         Serial.println("[Register Task] Active");
 
         while (menuOption == MenuOption::REGISTER) {
+            esp_task_wdt_reset();
+
             if (btManager.hasData()) {
                 String receivedData = btManager.receiveData();
                 if (receivedData.equalsIgnoreCase("Cancel")) {
@@ -1016,6 +1092,8 @@ void TaskRegister(void *pvParameters) {
             registerMember();
             vTaskDelay(pdMS_TO_TICKS(500));
         }
+
+        esp_task_wdt_delete(NULL);
 
         menuOption = MenuOption::MAIN_MENU;
         if (taskMainHandler != NULL) {
@@ -1039,9 +1117,16 @@ void TaskAttendance(void *pvParameters) {
         ulTaskNotifyTake(pdTRUE,
                          portMAX_DELAY); // Wait for notification to start
 
+        esp_task_wdt_add(NULL);
+
         Serial.println("[Attendance Task] Active");
+        showAttendanceOptions();
+
+        bool promptDrawn = false;
 
         while (menuOption == MenuOption::ATTENDANCE) {
+            esp_task_wdt_reset();
+
             if (btManager.hasData()) {
                 String receivedData = btManager.receiveData();
                 if (receivedData.equalsIgnoreCase("Cancel")) {
@@ -1049,6 +1134,7 @@ void TaskAttendance(void *pvParameters) {
                         Serial.println("Attendance canceled. Returning to "
                                        "attendance menu...");
                         presenceOption = PresenceOption::NONE;
+                        showAttendanceOptions();
                     } else {
                         Serial.println("Attendance canceled. Returning to "
                                        "main menu...");
@@ -1075,6 +1161,7 @@ void TaskAttendance(void *pvParameters) {
                     manualAttendance();
                     break;
                 }
+                promptDrawn = false;
             }
 
             if (presenceOption != PresenceOption::NONE) {
@@ -1087,7 +1174,8 @@ void TaskAttendance(void *pvParameters) {
 
                     delete uid;
                     uid = nullptr;
-                } else {
+                    promptDrawn = false;
+                } else if (!promptDrawn) {
                     Serial.println(
                         "Please put member id card into RFID Reader...");
 
@@ -1097,10 +1185,14 @@ void TaskAttendance(void *pvParameters) {
                     display.setCursor((display.width() - 180) / 2,
                                       (display.height() + 130) / 2);
                     display.print("Tap Your ID Card!");
+
+                    promptDrawn = true;
                 }
             }
             vTaskDelay(pdMS_TO_TICKS(500));
         }
+
+        esp_task_wdt_delete(NULL);
 
         menuOption = MenuOption::MAIN_MENU;
         if (taskMainHandler != NULL) {
