@@ -28,16 +28,23 @@ bool DatabaseManager::begin(char *apn, ServerSSLVersion sslVersion,
     Serial.println(modem.getModemName());
 
     Serial.println();
-    Serial.println("Checking SIM...");
+    Serial.println("Configuring modem settings...");
+    modem.setBaud(115200);
+    modem.sendAT(GF("&W"));
+    modem.waitResponse(1000L);
 
-    SimStatus simStatus = modem.getSimStatus();
-    if (simStatus != SIM_READY) {
-        Serial.print("SIM is not ready. Status: ");
-        Serial.println((int)simStatus);
+    modem.sendAT(GF("+CNMP=38"));
+    modem.waitResponse(1000L);
+    modem.sendAT(GF("&W"));
+    modem.waitResponse(1000L);
+
+    modem.sendAT(GF("+CSCLK=0"));
+    modem.waitResponse(1000L);
+
+    if (!waitForSim(timeout)) {
+        Serial.println("ERROR: No SIM card ready.");
         return false;
     }
-
-    Serial.println("SIM ready.");
 
     Serial.println();
     Serial.println("Waiting for cellular network...");
@@ -339,6 +346,33 @@ bool DatabaseManager::waitForModem(uint32_t timeout) {
     }
 
     Serial.println("ERROR: Modem did not respond within timeout.");
+    return false;
+}
+
+bool DatabaseManager::waitForSim(uint32_t timeout) {
+    Serial.println();
+    Serial.println("Checking SIM card...");
+
+    uint32_t start = millis();
+
+    while (millis() - start < timeout) {
+        if (modem.getSimStatus() == SIM_READY) {
+            Serial.println("SIM Card ready!");
+            return true;
+        }
+
+        Serial.println("SIM not ready / not detected. Retrying...");
+
+        modem.sendAT(GF("+CFUN=0"));
+        modem.waitResponse(3000L);
+        delay(1000);
+
+        modem.sendAT(GF("+CFUN=1"));
+        modem.waitResponse(5000L);
+        delay(2000);
+    }
+
+    Serial.println("ERROR: SIM card detection timed out.");
     return false;
 }
 
