@@ -95,7 +95,7 @@ Preferences pref;
 
 // Enum for System Options
 enum MenuOption { MAIN_MENU, REGISTER, ATTENDANCE };
-enum PresenceOption { NONE, PARTICIPANT, COMMITTEE, BPHI };
+enum PresenceOption { NONE, PARTICIPANT, COMMITTEE, BPHI, MANUAL };
 
 // ========================[ Task Handlers ]===========================
 TaskHandle_t taskMainHandler = NULL;
@@ -295,10 +295,10 @@ void registerMember() {
     String callbackData;
     JsonDocument doc, callbackDoc;
     callbackDoc["message"] = "Member Card UID Detected!";
+    callbackDoc["status"] = "CARD_DETECTED";
 
     JsonObject data = callbackDoc["data"].to<JsonObject>();
-    data["status"] = "CARD_DETECTED";
-    data["card_uid"] = cardUID;
+    data["cardId"] = cardUID;
     serializeJson(callbackDoc, callbackData);
     btManager.sendData(callbackData);
 
@@ -331,9 +331,7 @@ void registerMember() {
                 callbackData = "";
                 callbackDoc.clear();
                 callbackDoc["message"] = "Failed to deserialize data!";
-
-                JsonObject data = callbackDoc["data"].to<JsonObject>();
-                data["status"] = "DESERIALIZE_FAILED";
+                callbackDoc["status"] = "DESERIALIZE_FAILED";
 
                 serializeJson(callbackDoc, callbackData);
                 btManager.sendData(callbackData);
@@ -358,9 +356,7 @@ void registerMember() {
         callbackData = "";
         callbackDoc.clear();
         callbackDoc["message"] = "Timeout: No data received!";
-
-        JsonObject data = callbackDoc["data"].to<JsonObject>();
-        data["status"] = "TIMEOUT_NO_DATA";
+        callbackDoc["status"] = "TIMEOUT_NO_DATA";
 
         serializeJson(callbackDoc, callbackData);
         btManager.sendData(callbackData);
@@ -390,6 +386,7 @@ void registerMember() {
      */
     Serial.println("Write data to database...");
 
+    char message[128];
     callbackData = "";
     callbackDoc.clear();
 
@@ -403,17 +400,21 @@ void registerMember() {
     if (isSuccess) {
         Serial.println("Successfully wrote data to API database!");
 
-        callbackDoc["message"] = "Success register member card!";
+        snprintf(message, sizeof(message),
+                 "Successfully register new member with Card Id %s!",
+                 cardUID.c_str());
 
-        JsonObject data = callbackDoc["data"].to<JsonObject>();
-        data["status"] = "REGISTER_CARD_SUCCESS";
+        callbackDoc["message"] = message;
+        callbackDoc["status"] = "REGISTER_CARD_SUCCESS";
     } else {
         Serial.println("Failed to write data to API database!");
 
-        callbackDoc["message"] = "Failed to register member card!";
+        snprintf(message, sizeof(message),
+                 "Failed register new member with Card Id %s!",
+                 cardUID.c_str());
 
-        JsonObject data = callbackDoc["data"].to<JsonObject>();
-        data["status"] = "REGISTER_CARD_FAILED";
+        callbackDoc["message"] = message;
+        callbackDoc["status"] = "REGISTER_CARD_FAILED";
     }
 
     serializeJson(callbackDoc, callbackData);
@@ -536,16 +537,16 @@ void showAttendanceMenu() {
  * @param option The type of attendance (BPHI, Committee, or Participant).
  */
 void memberAttendance(String cardUID, PresenceOption option) {
-    Serial.println("Fetching member UID to database...");
+    Serial.println("Fetching Member Id to database...");
     vTaskDelay(pdMS_TO_TICKS(100));
 
     String callbackData;
     JsonDocument doc, callbackDoc;
-    callbackDoc["message"] = "Member Card UID Detected!";
+    callbackDoc["message"] = "Member Card Id Detected!";
+    callbackDoc["status"] = "CARD_DETECTED";
 
     JsonObject data = callbackDoc["data"].to<JsonObject>();
-    data["status"] = "CARD_DETECTED";
-    data["card_uid"] = cardUID;
+    data["cardId"] = cardUID;
     serializeJson(callbackDoc, callbackData);
     btManager.sendData(callbackData);
 
@@ -571,9 +572,7 @@ void memberAttendance(String cardUID, PresenceOption option) {
                 callbackData = "";
                 callbackDoc.clear();
                 callbackDoc["message"] = "Failed to deserialize data!";
-
-                JsonObject data = callbackDoc["data"].to<JsonObject>();
-                data["status"] = "DESERIALIZE_FAILED";
+                callbackDoc["status"] = "DESERIALIZE_FAILED";
 
                 serializeJson(callbackDoc, callbackData);
                 btManager.sendData(callbackData);
@@ -587,23 +586,22 @@ void memberAttendance(String cardUID, PresenceOption option) {
     }
     // ==================================================================
 
+    // If no data was received from the Bluetooth device within the timeout period, send a timeout message
     if (!dataReceived) {
         Serial.println("Timeout: No data received from Bluetooth!");
 
         callbackData = "";
         callbackDoc.clear();
         callbackDoc["message"] = "Timeout: No data received!";
-
-        JsonObject data = callbackDoc["data"].to<JsonObject>();
-        data["status"] = "TIMEOUT_NO_DATA";
+        callbackDoc["status"] = "TIMEOUT_NO_DATA";
 
         serializeJson(callbackDoc, callbackData);
         btManager.sendData(callbackData);
         return;
     }
 
-    String status = doc["data"]["status"].as<String>();
-    if (status == "USER_VALID_AND_NOT_ATTENDANCE") {
+    String status = doc["status"].as<String>();
+    if (status == "MEMBER_NOT_YET_ATTENDANCE") {
         String memberId = doc["data"]["memberId"].as<String>();
         String name = doc["data"]["nama"].as<String>();
         String nim = doc["data"]["nim"].as<String>();
@@ -618,6 +616,7 @@ void memberAttendance(String cardUID, PresenceOption option) {
         attendanceData.put("uid", cardUID);
         attendanceData.put("role", getPresenceOptionName(option));
 
+        char message[128];
         String currentDate = getNetworkDate();
 
         esp_task_wdt_reset();
@@ -631,15 +630,20 @@ void memberAttendance(String cardUID, PresenceOption option) {
         callbackDoc.clear();
         if (isSuccess) {
             Serial.println("Successfully wrote data to API Server!");
-            Serial.printf("Member with UID %s doing Log In attendance on %s!\n",
-                          cardUID, currentDate);
+            Serial.printf(
+                "Member with Card Id %s doing Log In attendance on %s!\n",
+                cardUID, currentDate);
 
-            callbackDoc["message"] =
-                "User successfully attendence on active event!";
+            snprintf(message, sizeof(message),
+                     "Member with Card Id %s successfully to attend on active "
+                     "event.",
+                     cardUID.c_str());
+
+            callbackDoc["message"] = message;
+            callbackDoc["status"] = "MEMBER_SUCCESS_ATTENDANCE";
 
             JsonObject data = callbackDoc["data"].to<JsonObject>();
-            data["status"] = "USER_SUCCESS_ATTENDANCE";
-            data["card_uid"] = cardUID;
+            data["cardId"] = cardUID;
 
             serializeJson(callbackDoc, callbackData);
             btManager.sendData(callbackData);
@@ -657,11 +661,13 @@ void memberAttendance(String cardUID, PresenceOption option) {
         } else {
             Serial.println("Failed to write data to API Server!");
 
-            callbackDoc["message"] = "User failed attendence on active event!";
+            snprintf(message, sizeof(message),
+                     "Member with Card Id %s failed to attend on active "
+                     "event.",
+                     cardUID.c_str());
 
-            JsonObject data = callbackDoc["data"].to<JsonObject>();
-            data["status"] = "USER_FAILED_ATTENDANCE";
-            data["card_uid"] = cardUID;
+            callbackDoc["message"] = message;
+            callbackDoc["status"] = "MEMBER_FAILED_ATTENDANCE";
 
             serializeJson(callbackDoc, callbackData);
             btManager.sendData(callbackData);
@@ -675,12 +681,8 @@ void memberAttendance(String cardUID, PresenceOption option) {
                               (display.height() + 130) / 2);
             display.print("Failed to Attendance!");
         }
-        return;
-    } else if (status == "USER_ALREADY_ATTENDANCE_OR_EVENT_NOT_EXISTS") {
-        Serial.println(
-            "User already attend on active event or event not exists!");
-    } else if (status == "USER_NOT_EXISTS") {
-        Serial.println("User not exists in database!");
+    } else {
+        Serial.println(doc["message"].as<String>());
     }
 
     vTaskDelay(pdMS_TO_TICKS(5000));
@@ -711,8 +713,6 @@ void manualAttendance() {
 
             if (receivedData.equalsIgnoreCase("Cancel")) {
                 Serial.println("Manual Attendance canceled via Bluetooth.");
-                rfid.PICC_HaltA();
-                rfid.PCD_StopCrypto1();
                 return;
             }
 
@@ -726,9 +726,7 @@ void manualAttendance() {
                 callbackData = "";
                 callbackDoc.clear();
                 callbackDoc["message"] = "Failed to deserialize data!";
-
-                JsonObject data = callbackDoc["data"].to<JsonObject>();
-                data["status"] = "DESERIALIZE_FAILED";
+                callbackDoc["status"] = "DESERIALIZE_FAILED";
 
                 serializeJson(callbackDoc, callbackData);
                 btManager.sendData(callbackData);
@@ -742,24 +740,11 @@ void manualAttendance() {
     }
     // ==================================================================
 
-    // If no data was received from the Bluetooth device within the timeout period, send a timeout message
-    if (!dataReceived) {
-        Serial.println("Timeout: No data received from Bluetooth!");
-
-        callbackData = "";
-        callbackDoc.clear();
-        callbackDoc["message"] = "Timeout: No data received!";
-
-        JsonObject data = callbackDoc["data"].to<JsonObject>();
-        data["status"] = "TIMEOUT_NO_DATA";
-
-        serializeJson(callbackDoc, callbackData);
-        btManager.sendData(callbackData);
+    if (!dataReceived)
         return;
-    }
 
+    String status = doc["status"].as<String>();
     String nim = doc["data"]["nim"].as<String>();
-    String status = doc["data"]["status"].as<String>();
 
     if (status == "MEMBER_NOT_YET_ATTENDANCE") {
         String memberId = doc["data"]["memberId"].as<String>();
@@ -774,21 +759,30 @@ void manualAttendance() {
         attendanceData.put("nim", nim);
         attendanceData.put("nama", name);
 
+        char message[128];
         String currentDate = getNetworkDate();
 
-        bool isSuccess = true;
-        // dbManager.createData("/api/log/izin", attendanceData.toJson());
+        esp_task_wdt_reset();
+
+        bool isSuccess =
+            dbManager.createData("/api/log/izin", attendanceData.toJson());
+
+        esp_task_wdt_reset();
 
         callbackData = "";
         callbackDoc.clear();
         if (isSuccess) {
             Serial.println("Successfully wrote data to API Server!");
             Serial.printf(
-                "Member with UID %s doing manual Log In attendance on %s!\n",
-                cardUID, currentDate);
+                "Member with NIM %s doing manual Log In attendance on %s!\n",
+                nim, currentDate);
 
-            callbackDoc["message"] =
-                "User successfully manual attendence on active event!";
+            snprintf(message, sizeof(message),
+                     "Member with NIM %s successfully to attend on active "
+                     "event manually.",
+                     nim.c_str());
+
+            callbackDoc["message"] = message;
             callbackDoc["status"] = "MEMBER_SUCCESS_MANUAL_ATTENDANCE";
 
             serializeJson(callbackDoc, callbackData);
@@ -807,8 +801,12 @@ void manualAttendance() {
         } else {
             Serial.println("Failed to write data to API Server!");
 
-            callbackDoc["message"] =
-                "User failed manual attendence on active event!";
+            snprintf(message, sizeof(message),
+                     "Member with NIM %s failed to attend on active "
+                     "event manually.",
+                     nim.c_str());
+
+            callbackDoc["message"] = message;
             callbackDoc["status"] = "MEMBER_FAILED_MANUAL_ATTENDANCE";
 
             serializeJson(callbackDoc, callbackData);
@@ -823,16 +821,8 @@ void manualAttendance() {
                               (display.height() + 130) / 2);
             display.print("Failed to Attendance!");
         }
-        return;
-    } else if (status == "MEMBER_ALREADY_ATTENDANCE") {
-        Serial.printf("Member with NIM %s has already "
-                      "attended the active event!",
-                      nim);
-        Serial.println();
-    } else if (status == "NO_ACTIVE_EVENT") {
-        Serial.println("No active event available!");
-    } else if (status == "MEMBER_NOT_EXISTS") {
-        Serial.println("Member not exists in database!");
+    } else {
+        Serial.println(doc["message"].as<String>());
     }
 
     vTaskDelay(pdMS_TO_TICKS(5000));
@@ -1133,6 +1123,7 @@ void TaskAttendance(void *pvParameters) {
                     if (presenceOption != PresenceOption::NONE) {
                         Serial.println("Attendance canceled. Returning to "
                                        "attendance menu...");
+
                         presenceOption = PresenceOption::NONE;
                         showAttendanceOptions();
                     } else {
@@ -1158,13 +1149,24 @@ void TaskAttendance(void *pvParameters) {
                     break;
                 case 4:
                     Serial.println("Manual attendance member...");
-                    manualAttendance();
+                    presenceOption = PresenceOption::MANUAL;
                     break;
                 }
                 promptDrawn = false;
             }
 
-            if (presenceOption != PresenceOption::NONE) {
+            if (presenceOption == PresenceOption::MANUAL) {
+                Serial.println(
+                    "Write member data manually to force it to attend!");
+
+                display.fillScreen(TFT_BLACK);
+                display.pushImage(90, 20, idCardIconWidth, idCardIconHeight,
+                                  idCardIcon);
+                display.setCursor(10, (display.height() + 130) / 2);
+                display.print("Write member NIM to attend!");
+
+                manualAttendance();
+            } else if (presenceOption != PresenceOption::NONE) {
                 String *uid = getCardUID(); // Get the UID of the card
 
                 // Check if the member UID card is valid
