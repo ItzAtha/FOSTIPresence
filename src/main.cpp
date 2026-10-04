@@ -5,6 +5,9 @@
 // Import package for SIMCOM A7670E modem
 #include <TinyGsmClient.h>
 
+// Import package for Modem Manager to handle modem operations
+#include <ModemManager.h>
+
 // Define Serial use for SIMOM A7670E
 #define SerialAT Serial1
 
@@ -13,8 +16,14 @@
 #define MODEM_TX 26
 #define MODEM_BAUD 115200
 
+// Initialize APN for SIMCOM A7670E
+char APN[] = "internet";
+
 // Create instance of SIMCOM A7670E
 TinyGsm modem(SerialAT);
+
+// Create instance of Modem Manager
+ModemManager modemManager(modem);
 
 // =====================================================================
 
@@ -77,11 +86,8 @@ TFT_eSPI display = TFT_eSPI();
 // Initialize API URL
 String apiUrl = "https://fostipresensiapi.vercel.app";
 
-// Initialize APN for SIMCOM A7670E
-char APN[] = "internet";
-
 // Create instance of Database Manager
-DatabaseManager dbManager(modem, apiUrl);
+DatabaseManager dbManager(apiUrl, modemManager);
 
 // Create instance of Preferences Database
 Preferences pref;
@@ -222,12 +228,12 @@ void setup() {
     // Initialize Bluetooth Manager
     btManager.begin("ESP32-PRESENCE");
 
-    // Connect to API Server
-    Serial.println("Connecting to API Server and Modem...");
-    if (dbManager.begin(APN, TINYGSM_SSL_TLS1_2, "ESP32-PRESENCE", 60000)) {
-        Serial.println("API Server and Modem connected!");
+    // Connect to SIMCOM A7670E Modem
+    Serial.println("Connecting to SIMCOM A7670E Modem...");
+    if (modemManager.begin(APN, TINYGSM_SSL_TLS1_2, "ESP32-PRESENCE", 60000)) {
+        Serial.println("SIMCOM A7670E Modem connected!");
     } else {
-        Serial.println("Failed to connect to API Server and Modem!");
+        Serial.println("Failed to connect to SIMCOM A7670E Modem!");
         while (1)
             vTaskDelay(pdMS_TO_TICKS(1000)); // Don't proceed, loop forever
     }
