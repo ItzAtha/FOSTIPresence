@@ -82,8 +82,7 @@ class DatabaseManager {
      * @param url The base URL for the API.
      * @param modem Reference to the ModemManager instance used for modem communication.
      */
-    DatabaseManager(const String &url, ModemManager &modem)
-        : url(url), modemManager(modem) {};
+    DatabaseManager(const String &url, ModemManager &modem);
 
     /**
      * @brief Creates new data in the database.
