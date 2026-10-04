@@ -42,6 +42,23 @@ class BTCharCallbacks : public NimBLECharacteristicCallbacks {
     }
 };
 
+class SystemBTCharCallbacks : public NimBLECharacteristicCallbacks {
+  private:
+    BluetoothManager *btManager;
+
+  public:
+    SystemBTCharCallbacks(BluetoothManager *manager) : btManager(manager) {}
+
+    void onWrite(NimBLECharacteristic *pCharacteristic,
+                 NimBLEConnInfo &connInfo) override {
+        std::string value = pCharacteristic->getValue();
+
+        Serial.print("Received system data: ");
+        Serial.println(value.c_str());
+        btManager->systemDataQueue.push(String(value.c_str()));
+    }
+};
+
 BluetoothManager::BluetoothManager() {}
 
 void BluetoothManager::begin(String deviceName) {
@@ -57,13 +74,22 @@ void BluetoothManager::begin(String deviceName) {
 
     // Create a BLE service and characteristics for sending and receiving data
     NimBLEService *pService = pServer->createService(serviceUUID);
+
+    // Create characteristics for sending and receiving data
     pCharSender = pService->createCharacteristic(
         senderUUID, NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY);
     pCharSender->setCallbacks(new BTCharCallbacks(this));
-
     pCharReceiver = pService->createCharacteristic(
         receiverUUID, NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_NR);
     pCharReceiver->setCallbacks(new BTCharCallbacks(this));
+
+    // Create characteristics for sending and receiving system-level data
+    pCharSystemSender = pService->createCharacteristic(
+        systemSenderUUID, NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY);
+    pCharSystemSender->setCallbacks(new SystemBTCharCallbacks(this));
+    pCharSystemReceiver = pService->createCharacteristic(
+        systemReceiverUUID, NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_NR);
+    pCharSystemReceiver->setCallbacks(new SystemBTCharCallbacks(this));
 
     // Start advertising the BLE service
     NimBLEAdvertising *pAdvertising = NimBLEDevice::getAdvertising();
@@ -100,7 +126,21 @@ void BluetoothManager::sendData(const String &data) {
     }
 }
 
-bool BluetoothManager::hasData() const { return !dataQueue.empty(); }
+void BluetoothManager::systemSendData(const String &data) {
+    if (pCharSystemSender) {
+        pCharSystemSender->setValue((const uint8_t *)data.c_str(),
+                                    data.length());
+        if (pCharSystemSender->notify()) {
+            Serial.println("System notification sent successfully.");
+            Serial.print("Sent system data: ");
+            Serial.println(data);
+        } else {
+            Serial.println("Error: Failed to send system notification.");
+        }
+    } else {
+        Serial.println("Error: System data characteristic not initialized.");
+    }
+}
 
 String BluetoothManager::receiveData() {
     if (!dataQueue.empty()) {
@@ -109,4 +149,19 @@ String BluetoothManager::receiveData() {
         return data;
     }
     return "";
+}
+
+String BluetoothManager::receiveSystemData() {
+    if (!systemDataQueue.empty()) {
+        String data = systemDataQueue.front();
+        systemDataQueue.pop();
+        return data;
+    }
+    return "";
+}
+
+bool BluetoothManager::hasData() const { return !dataQueue.empty(); }
+
+bool BluetoothManager::hasSystemData() const {
+    return !systemDataQueue.empty();
 }
