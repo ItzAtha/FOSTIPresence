@@ -5,6 +5,7 @@
 #include <NimBLEDevice.h>
 
 #include <functional>
+#include <mutex>
 #include <queue>
 
 // Define the UUID for the Bluetooth service
@@ -56,13 +57,13 @@ class BluetoothManager {
      * @brief Check if there is data available to read.
      * @return true if data is available, false otherwise.
      */
-    bool hasData() const;
+    bool hasData();
 
     /**
      * @brief Check if there is system-level data available to read.
      * @return true if system-level data is available, false otherwise.
      */
-    bool hasSystemData() const;
+    bool hasSystemData();
 
     /**
      * @brief Receive data over Bluetooth.
@@ -118,6 +119,18 @@ class BluetoothManager {
      * This queue is used to store system-level data received over Bluetooth.
      */
     std::queue<String> systemDataQueue;
+
+    /**
+     * @brief Mutex for thread-safe access to dataQueue.
+     * This mutex is used to ensure that access to the dataQueue is thread-safe.
+     */
+    std::mutex dataMutex;
+
+    /**
+     * @brief Mutex for thread-safe access to systemDataQueue.
+     * This mutex is used to ensure that access to the systemDataQueue is thread-safe.
+     */
+    std::mutex systemDataMutex;
 
     /**
      * @brief Callback functions for connection events.

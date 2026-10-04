@@ -35,6 +35,7 @@ class BTCharCallbacks : public NimBLECharacteristicCallbacks {
     void onWrite(NimBLECharacteristic *pCharacteristic,
                  NimBLEConnInfo &connInfo) override {
         std::string value = pCharacteristic->getValue();
+        std::lock_guard<std::mutex> lock(btManager->dataMutex);
 
         Serial.print("Received data: ");
         Serial.println(value.c_str());
@@ -52,6 +53,7 @@ class SystemBTCharCallbacks : public NimBLECharacteristicCallbacks {
     void onWrite(NimBLECharacteristic *pCharacteristic,
                  NimBLEConnInfo &connInfo) override {
         std::string value = pCharacteristic->getValue();
+        std::lock_guard<std::mutex> lock(btManager->systemDataMutex);
 
         Serial.print("Received system data: ");
         Serial.println(value.c_str());
@@ -143,6 +145,8 @@ void BluetoothManager::systemSendData(const String &data) {
 }
 
 String BluetoothManager::receiveData() {
+    std::lock_guard<std::mutex> lock(dataMutex);
+
     if (!dataQueue.empty()) {
         String data = dataQueue.front();
         dataQueue.pop();
@@ -152,6 +156,8 @@ String BluetoothManager::receiveData() {
 }
 
 String BluetoothManager::receiveSystemData() {
+    std::lock_guard<std::mutex> lock(systemDataMutex);
+
     if (!systemDataQueue.empty()) {
         String data = systemDataQueue.front();
         systemDataQueue.pop();
@@ -160,8 +166,12 @@ String BluetoothManager::receiveSystemData() {
     return "";
 }
 
-bool BluetoothManager::hasData() const { return !dataQueue.empty(); }
+bool BluetoothManager::hasData() {
+    std::lock_guard<std::mutex> lock(dataMutex);
+    return !dataQueue.empty();
+}
 
-bool BluetoothManager::hasSystemData() const {
+bool BluetoothManager::hasSystemData() {
+    std::lock_guard<std::mutex> lock(systemDataMutex);
     return !systemDataQueue.empty();
 }
