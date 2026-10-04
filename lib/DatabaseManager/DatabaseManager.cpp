@@ -1,153 +1,42 @@
 #include <DatabaseManager.h>
-#include <credentials.h>
 
-DatabaseManager::DatabaseManager(TinyGsm &modem, const String &url)
-    : url(url), modem(modem) {}
-
-bool DatabaseManager::begin(char *apn, ServerSSLVersion sslVersion,
-                            String userAgent, uint32_t timeout) {
-    Serial.println("Waiting for modem boot...");
-    delay(1000);
-
-    if (!waitForModem(timeout)) {
-        Serial.println("Modem initialization failed.");
-        return false;
-    }
-
-    Serial.println();
-    Serial.println("Initializing modem...");
-
-    if (!modem.init()) {
-        Serial.println("ERROR: modem.init() failed.");
-        return false;
-    }
-
-    Serial.println("Modem initialized.");
-
-    Serial.print("Modem: ");
-    Serial.println(modem.getModemName());
-
-    Serial.println();
-    Serial.println("Configuring modem settings...");
-    modem.setBaud(115200);
-    modem.sendAT(GF("&W"));
-    modem.waitResponse(1000L);
-
-    modem.sendAT(GF("+CNMP=38"));
-    modem.waitResponse(1000L);
-    modem.sendAT(GF("&W"));
-    modem.waitResponse(1000L);
-
-    modem.sendAT(GF("+CSCLK=0"));
-    modem.waitResponse(1000L);
-
-    if (!waitForSim(timeout)) {
-        Serial.println("ERROR: No SIM card ready.");
-        return false;
-    }
-
-    Serial.println();
-    Serial.println("Waiting for cellular network...");
-
-    if (!modem.waitForNetwork(120000L)) {
-        Serial.println("ERROR: Network registration failed.");
-        return false;
-    }
-
-    Serial.println("Network registered.");
-
-    int signal = modem.getSignalQuality();
-    Serial.print("Signal quality: ");
-    Serial.println(signal);
-
-    Serial.println();
-    Serial.println("Connecting to cellular data...");
-
-    if (!modem.gprsConnect(apn)) {
-        Serial.println("ERROR: GPRS connection failed.");
-        return false;
-    }
-
-    Serial.println("Cellular data connected.");
-
-    Serial.print("IP address: ");
-    Serial.println(modem.localIP());
-
-    this->apn = apn;
-    this->sslVersion = sslVersion;
-    modem.https_set_user_agent(userAgent);
-    Serial.println("Modem configured successfully.");
-    return true;
-}
-
-bool DatabaseManager::end() {
-    Serial.println("Ending HTTPS session...");
-
-    modem.https_end();
-
-    Serial.println("HTTPS session ended.");
-    Serial.println("Disconnecting from cellular data...");
-
-    if (!modem.gprsDisconnect()) {
-        Serial.println("ERROR: Failed to disconnect from GPRS.");
-        return false;
-    }
-
-    Serial.println("Cellular data disconnected.");
-    return true;
-}
+DatabaseManager::DatabaseManager(const String &url, ModemManager &modem)
+    : url(url), modemManager(modem) {}
 
 bool DatabaseManager::createData(String endpoint, JsonDocument jsonData) {
     String urlString = url + endpoint;
 
-    if (!ensureReady()) {
-        Serial.println("ERROR: Modem is not ready for communication.");
+    if (!configureRequest()) {
+        Serial.println("ERROR: Failed to configure HTTPS request.");
         return false;
     }
-
-    if (!modem.https_begin()) {
-        Serial.println("ERROR: HTTPS initialization failed.");
-        return false;
-    }
-
-    if (!modem.https_set_url(String(urlString), sslVersion, true)) {
-        Serial.println("ERROR: Failed to configure HTTPS URL.");
-        modem.https_end();
-        return false;
-    }
-
-    modem.https_set_accept_type("application/json");
-    modem.https_set_content_type("application/json");
-    modem.https_set_timeout(120, 30, 30);
 
     String jsonPayload;
     serializeJson(jsonData, jsonPayload);
 
-    Serial.print("Debug: ");
-    Serial.println(jsonPayload);
-    responseCode = modem.https_post(jsonPayload);
+    responseCode = modemManager.getModem().https_post(jsonPayload);
     if (responseCode > 0) {
-        response = modem.https_body();
+        response = modemManager.getModem().https_body();
 
         if (responseCode != HTTP_CREATED && responseCode != HTTP_OK) {
             Serial.print("Error on HTTP POST request: (");
             Serial.print(responseCode);
             Serial.print(") ");
             Serial.println(response);
-            modem.https_end();
+            modemManager.getModem().https_end();
             return false;
         }
     } else {
-        response = modem.https_body();
+        response = modemManager.getModem().https_body();
         Serial.print("Error on HTTP POST request: (");
         Serial.print(responseCode);
         Serial.print(") ");
         Serial.println(response);
-        modem.https_end();
+        modemManager.getModem().https_end();
         return false;
     }
 
-    modem.https_end();
+    modemManager.getModem().https_end();
     return true;
 }
 
@@ -155,100 +44,71 @@ bool DatabaseManager::updateData(String endpoint, String uid,
                                  JsonDocument jsonData) {
     String urlString = url + endpoint + '/' + uid;
 
-    if (!ensureReady()) {
-        Serial.println("ERROR: Modem is not ready for communication.");
+    if (!configureRequest()) {
+        Serial.println("ERROR: Failed to configure HTTPS request.");
         return false;
     }
-
-    if (!modem.https_begin()) {
-        Serial.println("ERROR: HTTPS initialization failed.");
-        return false;
-    }
-
-    if (!modem.https_set_url(String(urlString), sslVersion, true)) {
-        Serial.println("ERROR: Failed to configure HTTPS URL.");
-        modem.https_end();
-        return false;
-    }
-
-    modem.https_set_accept_type("application/json");
-    modem.https_set_content_type("application/json");
-    modem.https_set_timeout(120, 30, 30);
 
     String jsonPayload;
     serializeJson(jsonData, jsonPayload);
 
-    responseCode = modem.https_put(jsonPayload);
+    responseCode = modemManager.getModem().https_put(jsonPayload);
     if (responseCode > 0) {
-        response = modem.https_body();
+        response = modemManager.getModem().https_body();
 
         if (responseCode != HTTP_CREATED && responseCode != HTTP_OK) {
             Serial.print("Error on HTTP PUT request: (");
             Serial.print(responseCode);
             Serial.print(") ");
             Serial.println(response);
-            modem.https_end();
+            modemManager.getModem().https_end();
             return false;
         }
     } else {
-        response = modem.https_body();
+        response = modemManager.getModem().https_body();
         Serial.print("Error on HTTP PUT request: (");
         Serial.print(responseCode);
         Serial.print(") ");
         Serial.println(response);
-        modem.https_end();
+        modemManager.getModem().https_end();
         return false;
     }
 
-    modem.https_end();
+    modemManager.getModem().https_end();
     return true;
 }
 
 bool DatabaseManager::deleteData(String endpoint, String uid) {
     String urlString = url + endpoint + '/' + uid;
 
-    if (!ensureReady()) {
-        Serial.println("ERROR: Modem is not ready for communication.");
+    if (!configureRequest()) {
+        Serial.println("ERROR: Failed to configure HTTPS request.");
         return false;
     }
 
-    if (!modem.https_begin()) {
-        Serial.println("ERROR: HTTPS initialization failed.");
-        return false;
-    }
-
-    if (!modem.https_set_url(String(urlString), sslVersion, true)) {
-        Serial.println("ERROR: Failed to configure HTTPS URL.");
-        modem.https_end();
-        return false;
-    }
-
-    modem.https_set_content_type("application/json");
-    modem.https_set_timeout(120, 30, 30);
-
-    responseCode = modem.https_delete("");
+    responseCode = modemManager.getModem().https_delete("");
     if (responseCode > 0) {
-        response = modem.https_body();
+        response = modemManager.getModem().https_body();
 
         if (responseCode != HTTP_CREATED && responseCode != HTTP_OK) {
             Serial.print("Error on HTTP DELETE request: (");
             Serial.print(responseCode);
             Serial.print(") ");
             Serial.println(response);
-            modem.https_end();
+            modemManager.getModem().https_end();
             return false;
         }
     } else {
-        response = modem.https_body();
+        response = modemManager.getModem().https_body();
         Serial.print("Error on HTTP DELETE request: (");
         Serial.print(responseCode);
         Serial.print(") ");
         Serial.println(response);
-        modem.https_end();
+        modemManager.getModem().https_end();
         return false;
     }
 
-    modem.https_end();
+    modemManager.getModem().https_end();
     return true;
 }
 
@@ -258,37 +118,23 @@ DatabaseManager::readData(String endpoint, String uid,
     HashMap<String, String> data = {};
     String urlString = url + endpoint + '/' + uid;
 
-    if (!ensureReady()) {
-        Serial.println("ERROR: Modem is not ready for communication.");
+    if (!configureRequest()) {
+        Serial.println("ERROR: Failed to configure HTTPS request.");
         return data;
     }
-
-    if (!modem.https_begin()) {
-        Serial.println("ERROR: HTTPS initialization failed.");
-        return data;
-    }
-
-    if (!modem.https_set_url(String(urlString), sslVersion, true)) {
-        Serial.println("ERROR: Failed to configure HTTPS URL.");
-        modem.https_end();
-        return data;
-    }
-
-    modem.https_set_accept_type("application/json");
-    modem.https_set_timeout(120, 30, 30);
 
     size_t bodyLength = 0;
-    responseCode = modem.https_get(&bodyLength);
+    responseCode = modemManager.getModem().https_get(&bodyLength);
 
     if (responseCode > 0) {
-        response = modem.https_body();
+        response = modemManager.getModem().https_body();
 
         if (responseCode != HTTP_CREATED && responseCode != HTTP_OK) {
             Serial.print("Error on HTTP GET request: (");
             Serial.print(responseCode);
             Serial.print(") ");
             Serial.println(response);
-            modem.https_end();
+            modemManager.getModem().https_end();
         } else {
             JsonDocument doc, filter;
             for (size_t i = 0; i < columnData.size(); ++i) {
@@ -303,7 +149,7 @@ DatabaseManager::readData(String endpoint, String uid,
                 Serial.print("Deserialize Json failed: ");
                 Serial.println(deserializeError.c_str());
 
-                modem.https_end();
+                modemManager.getModem().https_end();
                 return data;
             }
 
@@ -316,128 +162,40 @@ DatabaseManager::readData(String endpoint, String uid,
             }
         }
     } else {
-        response = modem.https_body();
+        response = modemManager.getModem().https_body();
         Serial.print("Error on HTTP GET request: (");
         Serial.print(responseCode);
         Serial.print(") ");
         Serial.println(response);
-        modem.https_end();
+        modemManager.getModem().https_end();
     }
 
-    modem.https_end();
+    modemManager.getModem().https_end();
     return data;
 }
 
-bool DatabaseManager::waitForModem(uint32_t timeout) {
-    Serial.println();
-    Serial.println("Waiting for modem...");
-
-    uint32_t start = millis();
-
-    while (millis() - start < timeout) {
-        delay(500);
-
-        if (modem.testAT(3000)) {
-            Serial.println("Modem responded to AT.");
-            return true;
-        }
-
-        Serial.println("Waiting for modem AT response...");
-    }
-
-    Serial.println("ERROR: Modem did not respond within timeout.");
-    return false;
-}
-
-bool DatabaseManager::waitForSim(uint32_t timeout) {
-    Serial.println();
-    Serial.println("Checking SIM card...");
-
-    uint32_t start = millis();
-
-    while (millis() - start < timeout) {
-        if (modem.getSimStatus() == SIM_READY) {
-            Serial.println("SIM Card ready!");
-            return true;
-        }
-
-        Serial.println("SIM not ready / not detected. Retrying...");
-
-        modem.sendAT(GF("+CFUN=0"));
-        modem.waitResponse(3000L);
-        delay(1000);
-
-        modem.sendAT(GF("+CFUN=1"));
-        modem.waitResponse(5000L);
-        delay(2000);
-    }
-
-    Serial.println("ERROR: SIM card detection timed out.");
-    return false;
-}
-
-bool DatabaseManager::reconnectModem(uint32_t timeout, int retryCount) {
-
-    if (!modem.isNetworkConnected()) {
-        Serial.println("Modem is not connected to the network. Attempting to "
-                       "reconnect...");
-        if (!modem.waitForNetwork(timeout)) {
-            Serial.println("ERROR: Network registration failed.");
-            return false;
-        }
-
-        Serial.println("Network re-registered.");
-    }
-
-    for (uint8_t attempt = 1; attempt <= retryCount; attempt++) {
-        Serial.printf("[Cellular] GPRS connect attempt %d/%d...\n", attempt,
-                      retryCount);
-
-        modem.gprsDisconnect();
-        delay(1000);
-
-        if (modem.gprsConnect(apn)) {
-            Serial.println("[Cellular] GPRS reconnected successfully.");
-            Serial.print("[Cellular] New IP: ");
-            Serial.println(modem.localIP());
-            return true;
-        }
-
-        delay(2000);
-    }
-
-    Serial.println("[Cellular] GPRS failed. Soft-resetting modem stack...");
-    modem.init();
-    modem.waitForNetwork(60000L);
-
-    if (modem.gprsConnect(apn)) {
-        Serial.println("[Cellular] Recovered after modem reinit.");
-        return true;
-    }
-
-    Serial.println("[Cellular] FATAL: Could not restore data connection.");
-    return false;
-}
-
-bool DatabaseManager::ensureReady() {
-    if (!modem.isGprsConnected()) {
-        Serial.println("GPRS disconnected. Reconnecting before request...");
-        if (!reconnectModem(30000, 5)) {
-            return false;
-        }
-    }
-
-    while (modem.stream.available()) {
-        modem.stream.read();
-    }
-    return true;
-}
-
-bool DatabaseManager::isModemConnected() {
-    if (!modem.isGprsConnected()) {
-        Serial.println("ERROR: Modem is not connected to GPRS.");
+bool DatabaseManager::configureRequest() {
+    if (!modemManager.ensureReady()) {
+        Serial.println("ERROR: Modem is not ready for communication.");
         return false;
     }
+
+    if (!modemManager.getModem().https_begin()) {
+        Serial.println("ERROR: HTTPS initialization failed.");
+        return false;
+    }
+
+    if (!modemManager.getModem().https_set_url(
+            String(url), modemManager.getSSLVersion(), true)) {
+        Serial.println("ERROR: Failed to configure HTTPS URL.");
+        modemManager.getModem().https_end();
+        return false;
+    }
+
+    modemManager.getModem().https_set_accept_type("application/json");
+    modemManager.getModem().https_set_content_type("application/json");
+    modemManager.getModem().https_set_timeout(120, 30, 30);
+
     return true;
 }
 

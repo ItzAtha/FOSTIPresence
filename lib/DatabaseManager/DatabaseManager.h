@@ -1,115 +1,89 @@
 #ifndef DATABASEMANAGER_H
 #define DATABASEMANAGER_H
 
-// Import package for SIMCOM A7670 modem
+// Import package for Modem Manager to handle modem operations
+#include <ModemManager.h>
+
+// Import package for Arduino Json
 #include <ArduinoJson.h>
-#include <TinyGsmClient.h>
 
 // Import package for Data Collections
 #include <ArrayList.h>
 #include <HashMap.h>
 
+/**
+ * @brief Enum for data existence status.
+ * This enum is used to indicate the status of data existence
+ * when performing read operations from the database.
+ */
 typedef enum {
+    // Data exists in the database
     DATA_EXISTS,
+    // Data does not exist in the database
     DATA_NOT_FOUND,
+    // Error occurred during data deserialization
     DATA_DESERIALIZE_ERROR
 } dataExistence_t;
 
+/**
+ * @brief Enum for HTTP response codes.
+ * This enum is used to represent common HTTP response codes
+ * returned by the API during database operations.
+ */
 typedef enum {
+    // Successful responses
     HTTP_OK = 200,
+    // Successful creation of a resource
     HTTP_CREATED = 201,
+    // Successful deletion of a resource
     HTTP_NO_CONTENT = 204,
+    // Client error responses
     HTTP_BAD_REQUEST = 400,
+    // Unauthorized access
     HTTP_UNAUTHORIZED = 401,
+    // Forbidden access
     HTTP_FORBIDDEN = 403,
+    // Resource not found
     HTTP_NOT_FOUND = 404,
+    // Method not allowed
     HTTP_METHOD_NOT_ALLOWED = 405,
+    // Server error responses
     HTTP_INTERNAL_SERVER_ERROR = 500
 } httpResponseCode_t;
 
 class DatabaseManager {
   private:
-    // Access Point Name for the cellular network
-    char *apn;
     // Base URL for the API
     String url;
+
     // Response from the API
     String response;
+
     // Response code from the API
     int responseCode;
-    TinyGsm &modem;
-    ServerSSLVersion sslVersion;
+
+    // Reference to the ModemManager instance for modem communication
+    ModemManager &modemManager;
 
     /**
-     * @brief Ensures that the modem is ready for communication.
+     * @brief Configures the HTTPS request for the API.
      *
-     * This method checks if the modem is initialized and ready to send
-     * and receive data. It performs necessary checks and configurations
-     * to ensure that the modem is in a proper state for communication.
+     * This method sets up the HTTPS request with the necessary
+     * headers and configurations for communication with the API.
      *
-     * @return true if the modem is ready, false otherwise.
+     * @return True if the request was configured successfully, false otherwise.
      */
-    bool ensureReady();
-
-    /**
-     * @brief Waits for the modem to boot and become responsive.
-     *
-     * This method checks if the modem is ready by sending AT commands
-     * and waiting for a response. It will keep checking until the modem
-     * responds or the specified timeout is reached.
-     *
-     * @param timeout Maximum time to wait for the modem to respond (in milliseconds).
-     * @return true if the modem responded within the timeout, false otherwise.
-     */
-    bool waitForModem(uint32_t timeout = 30000);
-
-    /**
-     * @brief Waits for the sim to boot and become responsive.
-     *
-     * This method checks if the sim is ready by sending AT commands
-     * and waiting for a response. It will keep checking until the sim
-     * responds or the specified timeout is reached.
-     *
-     * @param timeout Maximum time to wait for the modem to respond (in milliseconds).
-     * @return true if the sim responded within the timeout, false otherwise.
-     */
-    bool waitForSim(uint32_t timeout = 30000);
-
-    /**
-     * @brief Reconnects the modem to the cellular network.
-     *
-     * @param timeout The maximum time to wait for reconnection.
-     *
-     * @return true if the modem is successfully reconnected, false otherwise.
-     */
-    bool reconnectModem(uint32_t timeout = 30000, int retryCount = 3);
+    bool configureRequest();
 
   public:
-    DatabaseManager(TinyGsm &modem, const String &url);
-
     /**
-     * @brief Initializes the HTTP client for making requests.
+     * @brief Constructs a DatabaseManager instance.
      *
-     * This method sets up the HTTP client with the specified URL,
-     * sends a GET request to the API, and processes the response.
-     *
-     * @param apn Access Point Name for the cellular network.
-     * @param sslVersion SSL version to use for secure connections.
-     * @param timeout Maximum time to wait for the modem to respond (in milliseconds).
-     * @return true if initialization was successful, false otherwise.
+     * @param url The base URL for the API.
+     * @param modem Reference to the ModemManager instance used for modem communication.
      */
-    bool begin(char *apn, ServerSSLVersion sslVersion,
-               String userAgent = "ESP32-A7670E", uint32_t timeout = 30000);
-
-    /**
-     * @brief Cleans up and closes the HTTP client.
-     *
-     * This method releases any resources allocated for the HTTP client
-     * and ensures that the connection is properly closed.
-     *
-     * @return true if cleanup was successful, false otherwise.
-     */
-    bool end();
+    DatabaseManager(const String &url, ModemManager &modem)
+        : url(url), modemManager(modem) {};
 
     /**
      * @brief Creates new data in the database.
@@ -167,15 +141,6 @@ class DatabaseManager {
      */
     HashMap<String, String> readData(String endpoint, String uid,
                                      HashMap<String, String> columnData);
-
-    /**
-     * @brief Checks if the modem is connected to the cellular network.
-     * This method verifies the modem's connection status to ensure that
-     * it is properly connected to the GPRS network before making any API requests.
-     *
-     * @return true if the modem is connected, false otherwise.
-     */
-    bool isModemConnected();
 
     /**
      * @brief Gets the URL of the last request.
