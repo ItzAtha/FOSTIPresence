@@ -14,6 +14,39 @@ class ModemManager {
     /// @brief The SSL version to use for secure connections.
     ServerSSLVersion sslVersion;
 
+    /**
+     * @brief Waits for the modem to boot and become responsive.
+     *
+     * This method checks if the modem is ready by sending AT commands
+     * and waiting for a response. It will keep checking until the modem
+     * responds or the specified timeout is reached.
+     *
+     * @param timeout Maximum time to wait for the modem to respond (in milliseconds).
+     * @return true if the modem responded within the timeout, false otherwise.
+     */
+    bool waitForModem(uint32_t timeout = 30000);
+
+    /**
+     * @brief Waits for the sim to boot and become responsive.
+     *
+     * This method checks if the sim is ready by sending AT commands
+     * and waiting for a response. It will keep checking until the sim
+     * responds or the specified timeout is reached.
+     *
+     * @param timeout Maximum time to wait for the modem to respond (in milliseconds).
+     * @return true if the sim responded within the timeout, false otherwise.
+     */
+    bool waitForSim(uint32_t timeout = 30000);
+
+    /**
+     * @brief Reconnects the modem to the cellular network.
+     *
+     * @param timeout The maximum time to wait for reconnection.
+     *
+     * @return true if the modem is successfully reconnected, false otherwise.
+     */
+    bool reconnectModem(uint32_t timeout = 30000, int retryCount = 3);
+
   public:
     /**
      * @brief Constructs a ModemManager instance.
@@ -60,37 +93,16 @@ class ModemManager {
     bool ensureReady();
 
     /**
-     * @brief Waits for the modem to boot and become responsive.
+     * @brief Checks the data quota for the modem.
      *
-     * This method checks if the modem is ready by sending AT commands
-     * and waiting for a response. It will keep checking until the modem
-     * responds or the specified timeout is reached.
+     * This method queries the modem for the current data usage and quota.
+     * It can be used to monitor data consumption and ensure that the
+     * modem does not exceed its allocated data limits.
      *
-     * @param timeout Maximum time to wait for the modem to respond (in milliseconds).
-     * @return true if the modem responded within the timeout, false otherwise.
+     * @param timeout Maximum time to wait for the modem response (in milliseconds).
+     * @return true if the quota check was successful, false otherwise.
      */
-    bool waitForModem(uint32_t timeout = 30000);
-
-    /**
-     * @brief Waits for the sim to boot and become responsive.
-     *
-     * This method checks if the sim is ready by sending AT commands
-     * and waiting for a response. It will keep checking until the sim
-     * responds or the specified timeout is reached.
-     *
-     * @param timeout Maximum time to wait for the modem to respond (in milliseconds).
-     * @return true if the sim responded within the timeout, false otherwise.
-     */
-    bool waitForSim(uint32_t timeout = 30000);
-
-    /**
-     * @brief Reconnects the modem to the cellular network.
-     *
-     * @param timeout The maximum time to wait for reconnection.
-     *
-     * @return true if the modem is successfully reconnected, false otherwise.
-     */
-    bool reconnectModem(uint32_t timeout = 30000, int retryCount = 3);
+    bool checkQuota(const char *shortcode, const char *keyword, String &reply);
 
     /**
      * @brief Checks if the modem is connected to the cellular network.

@@ -95,6 +95,20 @@ bool ModemManager::end() {
     return true;
 }
 
+bool ModemManager::ensureReady() {
+    if (!modem.isGprsConnected()) {
+        Serial.println("GPRS disconnected. Reconnecting before request...");
+        if (!reconnectModem(30000, 5)) {
+            return false;
+        }
+    }
+
+    while (modem.stream.available()) {
+        modem.stream.read();
+    }
+    return true;
+}
+
 bool ModemManager::waitForModem(uint32_t timeout) {
     Serial.println();
     Serial.println("Waiting for modem...");
@@ -186,18 +200,60 @@ bool ModemManager::reconnectModem(uint32_t timeout, int retryCount) {
     return false;
 }
 
-bool ModemManager::ensureReady() {
-    if (!modem.isGprsConnected()) {
-        Serial.println("GPRS disconnected. Reconnecting before request...");
-        if (!reconnectModem(30000, 5)) {
-            return false;
-        }
-    }
+bool ModemManager::checkQuota(const char *shortcode, const char *keyword,
+                              String &reply) {
+    modem.https_end();
 
     while (modem.stream.available()) {
         modem.stream.read();
     }
-    return true;
+
+    modem.sendAT(GF("+CMGF=1"));
+    if (modem.waitResponse(2000L) != 1) {
+        Serial.println("Failed to set SMS text mode.");
+        return false;
+    }
+
+    modem.sendAT(GF("+CMGD=1,4"));
+    modem.waitResponse(5000L);
+
+    Serial.printf("Requesting quota info from %s: %s...\n", shortcode, keyword);
+    if (!modem.sendSMS(shortcode, keyword)) {
+        Serial.println("Failed to send inquiry SMS.");
+        return false;
+    }
+
+    Serial.println("Waiting for carrier SMS response...");
+    uint32_t start = millis();
+    bool messageFound = false;
+
+    while (millis() - start < 35000L) {
+        delay(3000);
+
+        modem.sendAT(GF("+CMGR=1"));
+
+        if (modem.waitResponse(2000L, GF("+CMGR:")) == 1) {
+            String header = modem.stream.readStringUntil('\n');
+
+            String body = modem.stream.readStringUntil('\n');
+            body.trim();
+
+            modem.waitResponse(1000L);
+
+            if (body.length() > 0) {
+                reply = body;
+                Serial.printf("\n[SMS Received from %s]:\n%s\n\n", shortcode,
+                              reply.c_str());
+                messageFound = true;
+                break;
+            }
+        }
+    }
+
+    modem.sendAT(GF("+CMGD=1,4"));
+    modem.waitResponse(2000L);
+
+    return messageFound;
 }
 
 bool ModemManager::isModemConnected() {
