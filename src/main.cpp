@@ -104,10 +104,12 @@ enum MenuOption { MAIN_MENU, REGISTER, ATTENDANCE };
 enum PresenceOption { NONE, PARTICIPANT, COMMITTEE, BPHI, MANUAL };
 
 // ========================[ Task Handlers ]===========================
-TaskHandle_t taskMainHandler = NULL;
-TaskHandle_t taskRegisterHandler = NULL;
-TaskHandle_t taskAttendanceHandler = NULL;
-TaskHandle_t taskLoadingHandler = NULL;
+TaskHandle_t mainTaskHandler = NULL;
+TaskHandle_t registerTaskHandler = NULL;
+TaskHandle_t attendanceTaskHandler = NULL;
+
+TaskHandle_t loadingTaskHandler = NULL;
+TaskHandle_t simQuotaCheckerTaskHandler = NULL;
 
 // ========================[ Global Variables ]========================
 MenuOption menuOption = MenuOption::MAIN_MENU; // Current main menu option
@@ -119,10 +121,13 @@ std::atomic<bool>
     stopLoading(false); // Flag to signal the loading task to terminate
 
 // Define ESP32 RTOS task method
-void TaskLoadingBar(void *pvParameters);
 void TaskMain(void *pvParameters);
 void TaskRegister(void *pvParameters);
 void TaskAttendance(void *pvParameters);
+void TaskLoadingBar(void *pvParameters);
+void TaskSIMQuotaChecker(void *pvParameters);
+
+SemaphoreHandle_t modemMutex = NULL;
 
 /**
  * @brief Split a string by a given delimiter.
@@ -179,14 +184,20 @@ String getNetworkDate() {
     int year = 0, month = 0, day = 0, hour = 0, min = 0, sec = 0;
     float tz = 0;
 
-    // Queries AT+CCLK through TinyGSM
-    if (modem.getNetworkTime(&year, &month, &day, &hour, &min, &sec, &tz)) {
+    bool success = false;
+    if (modemMutex != NULL &&
+        xSemaphoreTake(modemMutex, pdMS_TO_TICKS(5000)) == pdTRUE) {
+        success = modemManager.getModem().getNetworkTime(
+            &year, &month, &day, &hour, &min, &sec, &tz);
+        xSemaphoreGive(modemMutex);
+    }
+
+    if (success) {
         char dateBuf[16];
         snprintf(dateBuf, sizeof(dateBuf), "%04d-%02d-%02d", year, month, day);
         return String(dateBuf);
     }
 
-    // Fallback if the tower has not broadcasted NITZ yet
     return "2026-01-01";
 }
 
@@ -223,7 +234,7 @@ void setup() {
 
     stopLoading.store(false);
     xTaskCreate(TaskLoadingBar, "Loading Bar", 4096, NULL, 1,
-                &taskLoadingHandler);
+                &loadingTaskHandler);
 
     // Initialize Bluetooth Manager
     btManager.begin("ESP32-PRESENCE");
@@ -256,17 +267,26 @@ void setup() {
 
     display.fillScreen(TFT_BLACK);
 
+    modemMutex = xSemaphoreCreateMutex();
+
     /**
-     * Create the main tasks for the ESP32 system.
-     * These tasks handle the main menu, member registration,
-     * and member attendance functionalities.
+     * @brief Create RTOS tasks for the main menu, register data, and member attendance.
+     * Each task is pinned to a specific core of the ESP32 for better performance.
      */
     xTaskCreatePinnedToCore(TaskMain, "Main Menu", 10240, NULL, 1,
-                            &taskMainHandler, 1);
+                            &mainTaskHandler, 1);
     xTaskCreatePinnedToCore(TaskRegister, "Register Data", 10240, NULL, 1,
-                            &taskRegisterHandler, 1);
+                            &registerTaskHandler, 1);
     xTaskCreatePinnedToCore(TaskAttendance, "Member Attendance", 10240, NULL, 1,
-                            &taskAttendanceHandler, 1);
+                            &attendanceTaskHandler, 1);
+
+    /**
+    * @brief Create RTOS task for SIM quota checking.
+    * This task periodically checks the SIM card's quota and sends
+    * the details to the Attendance Management app via Bluetooth.
+    */
+    xTaskCreatePinnedToCore(TaskSIMQuotaChecker, "SIM Quota Checker", 8192,
+                            NULL, 1, &simQuotaCheckerTaskHandler, 1);
 }
 
 // TODO: Add register member to OLED LCD and add loading animation when registering member data to Database
@@ -396,12 +416,14 @@ void registerMember() {
     callbackData = "";
     callbackDoc.clear();
 
-    esp_task_wdt_reset();
-
-    bool isSuccess =
-        dbManager.createData("/api/mahasiswa", memberData.toJson());
-
-    esp_task_wdt_reset();
+    bool isSuccess = false;
+    if (modemMutex != NULL &&
+        xSemaphoreTake(modemMutex, pdMS_TO_TICKS(20000)) == pdTRUE) {
+        esp_task_wdt_reset();
+        isSuccess = dbManager.createData("/api/mahasiswa", memberData.toJson());
+        esp_task_wdt_reset();
+        xSemaphoreGive(modemMutex);
+    }
 
     if (isSuccess) {
         Serial.println("Successfully wrote data to API database!");
@@ -453,8 +475,15 @@ void showMemberData(String memberUID, bool showOnLED = true) {
     if (showDivision)
         column.put("divisi", "Member Division");
 
-    HashMap<String, String> memberData =
-        dbManager.readData("/api/mahasiswa", memberUID, column);
+    HashMap<String, String> memberData;
+    if (modemMutex != NULL &&
+        xSemaphoreTake(modemMutex, pdMS_TO_TICKS(15000)) == pdTRUE) {
+        memberData = dbManager.readData("/api/mahasiswa", memberUID, column);
+        xSemaphoreGive(modemMutex);
+    } else {
+        Serial.println("[Modem] Busy, could not read member data.");
+        return;
+    }
 
     // Print member data to Serial Monitor
     Serial.println("=========] Member Data [=========");
@@ -625,12 +654,15 @@ void memberAttendance(String cardUID, PresenceOption option) {
         char message[128];
         String currentDate = getNetworkDate();
 
-        esp_task_wdt_reset();
-
-        bool isSuccess =
-            dbManager.createData("/api/log/masuk", attendanceData.toJson());
-
-        esp_task_wdt_reset();
+        bool isSuccess = false;
+        if (modemMutex != NULL &&
+            xSemaphoreTake(modemMutex, pdMS_TO_TICKS(20000)) == pdTRUE) {
+            esp_task_wdt_reset();
+            isSuccess =
+                dbManager.createData("/api/log/masuk", attendanceData.toJson());
+            esp_task_wdt_reset();
+            xSemaphoreGive(modemMutex);
+        }
 
         callbackData = "";
         callbackDoc.clear();
@@ -768,12 +800,15 @@ void manualAttendance() {
         char message[128];
         String currentDate = getNetworkDate();
 
-        esp_task_wdt_reset();
-
-        bool isSuccess =
-            dbManager.createData("/api/log/izin", attendanceData.toJson());
-
-        esp_task_wdt_reset();
+        bool isSuccess = false;
+        if (modemMutex != NULL &&
+            xSemaphoreTake(modemMutex, pdMS_TO_TICKS(20000)) == pdTRUE) {
+            esp_task_wdt_reset();
+            isSuccess =
+                dbManager.createData("/api/log/izin", attendanceData.toJson());
+            esp_task_wdt_reset();
+            xSemaphoreGive(modemMutex);
+        }
 
         callbackData = "";
         callbackDoc.clear();
@@ -974,6 +1009,76 @@ void TaskLoadingBar(void *pvParameters) {
 }
 
 /**
+ * @brief Check SIM card quota via SMS.
+ * This task will check the SIM card quota every 10 minutes
+ * by sending an SMS to the service number and retrieving
+ * the quota details. The quota details will be printed
+ * to the Serial Monitor and can be sent to the Express backend.
+ *
+ * @param pvParameters Pointer to the task parameters (not used).
+ */
+void TaskSIMQuotaChecker(void *pvParameters) {
+    (void)pvParameters;
+
+    for (;;) {
+        String quotaReply = "";
+        bool quotaSuccess = false;
+
+        if (modemMutex != NULL &&
+            xSemaphoreTake(modemMutex, pdMS_TO_TICKS(15000)) == pdTRUE) {
+            quotaSuccess = modemManager.checkQuota("363", "USAGE", quotaReply);
+            xSemaphoreGive(modemMutex);
+        } else {
+            Serial.println("[Quota] Modem busy, will retry next cycle.");
+        }
+
+        if (quotaSuccess && quotaReply.length() > 0) {
+            Serial.println("Quota details received:");
+
+            ArrayList<String> quotaDetails = splitString(quotaReply, ' ');
+
+            if (quotaDetails.size() > 17) {
+                String expiredDate = quotaDetails.get(10);
+                String expiredTime = quotaDetails.get(11) + ":00";
+                String expiredDateTime = expiredDate + " " + expiredTime;
+                String quotaLeft = quotaDetails.get(16);
+
+                String rawPrefix = quotaDetails.get(17);
+                String quotaPrefix =
+                    (rawPrefix.length() > 1)
+                        ? rawPrefix.substring(0, rawPrefix.length() - 1)
+                        : rawPrefix;
+
+                String simQuotaLeft = quotaLeft + " " + quotaPrefix;
+
+                Serial.println("Expired Date & Time: " + expiredDateTime);
+                Serial.println("SIM Quota Left: " + simQuotaLeft);
+                Serial.println();
+
+                String callbackData;
+                JsonDocument callbackDoc;
+                callbackDoc["message"] = "SIM Quota Details Retrieved!";
+                callbackDoc["type"] = "SIM_QUOTA_DETAILS";
+
+                JsonObject data = callbackDoc["data"].to<JsonObject>();
+                data["expiredDateTime"] = expiredDateTime;
+                data["simQuotaLeft"] = simQuotaLeft;
+                serializeJson(callbackDoc, callbackData);
+                btManager.systemSendData(callbackData);
+            } else {
+                Serial.printf(
+                    "[Quota] Unexpected SMS format (only %d words). Raw: %s\n",
+                    quotaDetails.size(), quotaReply.c_str());
+            }
+        } else {
+            Serial.println("Could not retrieve quota details via SMS.");
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(600000UL));
+    }
+}
+
+/**
  * @brief Handles the menu options and system.
  * This main task runs in a loop and waits for user input
  * from the Serial Monitor. It processes the input and updates
@@ -1011,9 +1116,9 @@ void TaskMain(void *pvParameters) {
                 Serial.println("Opening register member data...");
                 menuOption = MenuOption::REGISTER;
 
-                if (taskRegisterHandler != NULL) {
+                if (registerTaskHandler != NULL) {
                     xTaskNotifyGive(
-                        taskRegisterHandler); // Notify the register task to start
+                        registerTaskHandler); // Notify the register task to start
                 }
 
                 esp_task_wdt_delete(NULL);
@@ -1031,9 +1136,9 @@ void TaskMain(void *pvParameters) {
                 Serial.println("Opening attendance member data...");
                 menuOption = MenuOption::ATTENDANCE;
 
-                if (taskAttendanceHandler != NULL) {
+                if (attendanceTaskHandler != NULL) {
                     xTaskNotifyGive(
-                        taskAttendanceHandler); // Notify the attendance task to start
+                        attendanceTaskHandler); // Notify the attendance task to start
                 }
 
                 esp_task_wdt_delete(NULL);
@@ -1092,8 +1197,8 @@ void TaskRegister(void *pvParameters) {
         esp_task_wdt_delete(NULL);
 
         menuOption = MenuOption::MAIN_MENU;
-        if (taskMainHandler != NULL) {
-            xTaskNotifyGive(taskMainHandler);
+        if (mainTaskHandler != NULL) {
+            xTaskNotifyGive(mainTaskHandler);
         }
     }
 }
@@ -1203,8 +1308,8 @@ void TaskAttendance(void *pvParameters) {
         esp_task_wdt_delete(NULL);
 
         menuOption = MenuOption::MAIN_MENU;
-        if (taskMainHandler != NULL) {
-            xTaskNotifyGive(taskMainHandler);
+        if (mainTaskHandler != NULL) {
+            xTaskNotifyGive(mainTaskHandler);
         }
     }
 }
