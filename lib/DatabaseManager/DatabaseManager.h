@@ -73,7 +73,7 @@ class DatabaseManager {
      *
      * @return True if the request was configured successfully, false otherwise.
      */
-    bool configureRequest();
+    bool configureRequest(const String &requestUrl);
 
   public:
     /**

@@ -6,7 +6,7 @@ DatabaseManager::DatabaseManager(const String &url, ModemManager &modem)
 bool DatabaseManager::createData(String endpoint, JsonDocument jsonData) {
     String urlString = url + endpoint;
 
-    if (!configureRequest()) {
+    if (!configureRequest(urlString)) {
         Serial.println("ERROR: Failed to configure HTTPS request.");
         return false;
     }
@@ -44,7 +44,7 @@ bool DatabaseManager::updateData(String endpoint, String uid,
                                  JsonDocument jsonData) {
     String urlString = url + endpoint + '/' + uid;
 
-    if (!configureRequest()) {
+    if (!configureRequest(urlString)) {
         Serial.println("ERROR: Failed to configure HTTPS request.");
         return false;
     }
@@ -81,7 +81,7 @@ bool DatabaseManager::updateData(String endpoint, String uid,
 bool DatabaseManager::deleteData(String endpoint, String uid) {
     String urlString = url + endpoint + '/' + uid;
 
-    if (!configureRequest()) {
+    if (!configureRequest(urlString)) {
         Serial.println("ERROR: Failed to configure HTTPS request.");
         return false;
     }
@@ -118,7 +118,7 @@ DatabaseManager::readData(String endpoint, String uid,
     HashMap<String, String> data = {};
     String urlString = url + endpoint + '/' + uid;
 
-    if (!configureRequest()) {
+    if (!configureRequest(urlString)) {
         Serial.println("ERROR: Failed to configure HTTPS request.");
         return data;
     }
@@ -174,7 +174,7 @@ DatabaseManager::readData(String endpoint, String uid,
     return data;
 }
 
-bool DatabaseManager::configureRequest() {
+bool DatabaseManager::configureRequest(const String &requestUrl) {
     if (!modemManager.ensureReady()) {
         Serial.println("ERROR: Modem is not ready for communication.");
         return false;
@@ -186,7 +186,7 @@ bool DatabaseManager::configureRequest() {
     }
 
     if (!modemManager.getModem().https_set_url(
-            String(url), modemManager.getSSLVersion(), true)) {
+            requestUrl, modemManager.getSSLVersion(), true)) {
         Serial.println("ERROR: Failed to configure HTTPS URL.");
         modemManager.getModem().https_end();
         return false;
